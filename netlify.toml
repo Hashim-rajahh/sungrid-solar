@@ -1,0 +1,20 @@
+# SunGrid Solar is a static site: no build step, the repository root is the site.
+[build]
+  publish = "."
+
+# A new service worker must be picked up on the next visit, so the browser must never reuse a stale copy.
+[[headers]]
+  for = "/sw.js"
+  [headers.values]
+    Cache-Control = "no-cache"
+
+[[headers]]
+  for = "/manifest.webmanifest"
+  [headers.values]
+    Content-Type = "application/manifest+json"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

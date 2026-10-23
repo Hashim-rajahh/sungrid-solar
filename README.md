@@ -2,9 +2,10 @@
 
 An offline-ready progressive web app (PWA) for **SunGrid Solar**, a solar panel installer in Lahore. This repository is **Task 1**: the app shell, routing and a first usable set of screens, set up so the next tasks (forms, storage, sync, and so on) can build on it.
 
-It is plain HTML, CSS and JavaScript (ES modules). There is **no build step and no dependencies**, so it runs the same on a developer laptop, on GitHub Pages and on a customer's phone.
+**Live app:** https://sungrid-solar.netlify.app/  
+**Repository:** https://github.com/Hashim-rajahh/sungrid-solar
 
-**Live demo:** `https://<Hashim-rajahh>.github.io/sungrid-solar/` (after GitHub Pages is switched on, see [Deploy](#deploy-to-github-pages))
+It is plain HTML, CSS and JavaScript (ES modules). There is **no build step and no dependencies**, so it runs the same on a developer laptop, on Netlify and on a customer's phone.
 
 ## What it does
 
@@ -23,7 +24,7 @@ Everything works with no network after the first visit: the app shell and the sa
 You need [Node.js](https://nodejs.org) 20 or newer. Nothing to install.
 
 ```bash
-git clone https://github.com/<Hashim-rajahh>/sungrid-solar.git
+git clone https://github.com/Hashim-rajahh/sungrid-solar.git
 cd sungrid-solar
 npm start
 ```
@@ -95,7 +96,7 @@ Run with `npm test` (Node's built-in test runner, no dependencies). **56 tests i
 | `quote.test.js` | 600 units in Lahore matches a hand calculation (9 panels, 5.175 kWp, Rs 8,28,000, 33,000/month saving); hybrid adds batteries | empty, text, zero, negative, tiny, huge; bad city/type; `constructor` as a city name |
 | `views.test.js` | dashboard, list, filter, detail, inventory, quote form | not found, unknown job, escaped HTML injection, empty data, a view that throws |
 | `util-data.test.js` | rupee / date / number formatting; every job and stock record is consistent | bad input to formatters; no placeholder text in the sample data |
-| `pwa.test.js` | manifest valid, icons exist, every cached file exists | a file missing from the offline cache; root-absolute URLs that would break GitHub Pages |
+| `pwa.test.js` | manifest valid, icons exist, every cached file exists | a file missing from the offline cache; root-absolute URLs that would break when hosted under a sub-path |
 | `app.test.js` | the real `app.js` against a fake DOM: first render, navigation, valid quote submit | empty form submit, other forms ignored, offline banner, service worker failure |
 
 **A bug these tests caught:** `(5.175).toFixed(2)` returns `"5.17"` in JavaScript because of binary floating-point, so the quote showed **5.17 kWp** for a 5.175 kWp system. `formatNumber` now rounds half-up correctly and has a regression test.
@@ -110,17 +111,18 @@ From `npm run measure` (Node 22):
 | Everything cached for offline, gzip | **25.0 KB** (52.5 KB raw) | 40 KB |
 | Time to build any screen's HTML | **about 0.1 ms or less** (worst of 6 routes) | 5 ms |
 
+Lighthouse on the deployed site (`https://sungrid-solar.netlify.app/#/inventory`, Chrome DevTools): Performance **83** · Accessibility **100** · Best Practices **100** · SEO **100**. Performance is the one score below 90, and is the first thing to look at in a later task.
+
 Measuring found a real problem: the first version of the icons made the offline cache **66.5 KB** gzip, over budget, because three 32-bit PNGs took about 50 KB. Reducing them to a 32-colour palette (the artwork is two flat colours) gave **25.0 KB** with no visible change. See `scripts/make-icons.py`.
 
-Lighthouse (Chrome DevTools, Mobile): Performance **__** · Accessibility **__** · Best practices **__** · SEO **__** · Installable PWA **__**  ⟵ FILL IN after running Lighthouse on the live URL
 
 ## Decision: hash routing instead of the History API
 
 **The choice.** Routes are URLs like `index.html#/jobs/SG-1042` (hash routing), handled by [`js/router.js`](js/router.js), instead of clean URLs like `/jobs/SG-1042` (the History API, `pushState`).
 
-**Why.** SunGrid Solar will be used by installers on phones, often with poor signal, and the hosting is a plain static host (GitHub Pages) with no server logic.
+**Why.** SunGrid Solar will be used by installers on phones, often with poor signal, and the hosting is a plain static host (Netlify) with no server logic.
 
-- With clean URLs, opening or refreshing `/jobs/SG-1042` asks the *server* for that path. A static host has no such file and returns a 404, so every host needs a "rewrite everything to index.html" rule, and the service worker needs matching fallback logic. A GitHub Pages project site also lives under `/sungrid-solar/`, which makes this fiddlier.
+- With clean URLs, opening or refreshing `/jobs/SG-1042` asks the *server* for that path. A static host has no such file and returns a 404, so every host needs a "rewrite everything to index.html" rule, and the service worker needs matching fallback logic.
 - With hash URLs, the browser only ever requests `index.html`. The part after `#` never reaches the server, so every deep link, refresh and offline reload works on any host with zero configuration, and the offline cache has exactly one page to remember.
 
 **Trade-offs accepted.**
@@ -140,7 +142,7 @@ Lighthouse (Chrome DevTools, Mobile): Performance **__** · Accessibility **__**
 | **Service worker: cache-first with a versioned cache** | Stale-while-revalidate | All files of one release come from one consistent cache, so a new `views.js` can never run with an old `data.js`. Cost: when any shell file changes you **must bump `VERSION` in `sw.js`**; a test fails if a file is missing from the list, but it cannot detect a forgotten bump. |
 | **Sample data bundled in `js/data.js`** | Fetch JSON / IndexedDB | Works offline with no loading states for this task. Cost: data is read-only. Task 2 onward should move it behind a small storage module (IndexedDB) so screens do not change. |
 | **Icons quantised to 32 colours** | Full-colour PNGs | Offline cache went from 66.5 KB to 25.0 KB gzip (see Measured results). |
-| **All URLs relative (`./`)** | `/`-rooted URLs | Needed so the app works under `/sungrid-solar/` on GitHub Pages; a test enforces it. |
+| **All URLs relative (`./`)** | `/`-rooted URLs | Keeps the app working from any folder or sub-path, not only a domain root; a test enforces it. |
 
 ## Project layout
 
@@ -167,15 +169,18 @@ scripts/                serve.mjs (dev server), measure.mjs, make-icons.py
 - **Add data that persists:** replace the imports from `data.js` in `renderRoute` with a storage module; the views already receive their data as an argument.
 - **Add a form:** follow the quote form: labelled fields, a `*-err` message element per field, `aria-invalid` on problems, one pure validation function with its own tests.
 
-## Deploy to GitHub Pages
+## Deploy to Netlify
 
-1. Push this folder to a GitHub repository named `sungrid-solar`.
-2. **Settings → Pages → Build and deployment**: Source *Deploy from a branch*, Branch `main`, folder `/ (root)`, Save.
-3. After a minute the site is at `https://<your-github-username>.github.io/sungrid-solar/`. Open it once online, then it works offline.
+The app is static, so there is nothing to build. [`netlify.toml`](netlify.toml) sets the publish folder to the repository root and adds three headers:
+
+- `sw.js` is served with `no-cache`, so a new release reaches users on their next visit instead of being held back by the browser's HTTP cache.
+- `manifest.webmanifest` is served with the correct `application/manifest+json` type.
+- Basic security headers (`X-Content-Type-Options`, `Referrer-Policy`).
+
+To deploy: import the repository in Netlify (*Add new site → Import an existing project*), leave the build command empty, and set the publish directory to `.`. Netlify serves over HTTPS, which service workers require. Open the site once online and it then works offline.
 
 ## Known limitations
 
 - Quote figures are estimates from the assumptions in `pricing`; a real quote needs a site survey (roof area, shading, load profile).
 - Data is read-only sample data (see the decision table above).
 - Updating the app for existing users requires bumping `VERSION` in `sw.js`.
-- Lighthouse results are filled in manually, because they need a real Chrome against the deployed site.
