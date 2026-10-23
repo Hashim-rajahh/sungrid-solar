@@ -1,0 +1,14 @@
+{
+  "name": "sungrid-solar",
+  "version": "0.1.0",
+  "description": "SunGrid Solar offline-ready PWA: app shell and routing (Task 1)",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "scripts": {
+    "start": "node scripts/serve.mjs",
+    "test": "node --test",
+    "measure": "node scripts/measure.mjs",
+    "icons": "python3 scripts/make-icons.py"
+  }
+}
