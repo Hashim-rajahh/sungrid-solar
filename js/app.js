@@ -1,17 +1,22 @@
-// Browser entry point: wires the router to the page. All real logic lives in router.js / views.js / quote.js.
+// Browser entry point: wires the router to the page. All real logic lives in router.js / views.js /
+// quote.js / offline.js / sw-register.js, which are tested without a browser.
 
 import { resolve } from './router.js';
-import { renderRoute, quoteResultHtml } from './views.js';
+import { renderRoute, quoteResultHtml, offlineStatusHtml } from './views.js';
 import { calculateQuote } from './quote.js';
+import { collectStatus, clearOfflineData } from './offline.js';
+import { setupServiceWorker } from './sw-register.js';
 import { company } from './data.js';
 
 const outlet = document.getElementById('app');
 const netStatus = document.getElementById('net-status');
 const offlineBadge = document.getElementById('offline-ready');
+const updateBanner = document.getElementById('update-banner');
+const updateButton = document.getElementById('update-btn');
 let firstRender = true;
 
 // Which nav link to highlight for each route ("job" belongs under "Jobs").
-const NAV_FOR = { dashboard: 'dashboard', jobs: 'jobs', job: 'jobs', quote: 'quote', inventory: 'inventory' };
+const NAV_FOR = { dashboard: 'dashboard', jobs: 'jobs', job: 'jobs', quote: 'quote', inventory: 'inventory', offline: 'offline' };
 
 function render() {
   const route = resolve(window.location.hash);
@@ -31,6 +36,8 @@ function render() {
     window.scrollTo({ top: 0 });
   }
   firstRender = false;
+
+  if (route.name === 'offline') refreshOfflineStatus();
 }
 
 // ---- Quote form (event delegation, because the form is re-created on every visit) ----
@@ -68,24 +75,83 @@ function updateNetwork() {
   netStatus.hidden = online;
   netStatus.textContent = online ? '' : 'You are offline. SunGrid Solar keeps working with the data on this device.';
 }
-window.addEventListener('online', updateNetwork);
+window.addEventListener('online', () => {
+  updateNetwork();
+  worker.checkForUpdate(); // back in signal: good moment to look for a new version
+});
 window.addEventListener('offline', updateNetwork);
 
-// ---- Service worker (offline support) ----
-async function registerServiceWorker() {
-  if (!('serviceWorker' in navigator)) return;
-  try {
-    await navigator.serviceWorker.register('./sw.js');
-    await navigator.serviceWorker.ready;
+// ---- Service worker: offline copy and updates ----
+function onWorkerState(state) {
+  if (state.kind === 'ready') {
     offlineBadge.textContent = 'Ready for offline use ✓';
-  } catch (err) {
+  } else if (state.kind === 'update-ready') {
+    offlineBadge.textContent = 'Ready for offline use ✓ (update available)';
+    if (updateBanner) updateBanner.hidden = false;
+  } else {
     // Not fatal: the app still works online. Typical cause: opened via file:// instead of http(s).
-    console.warn('Offline support unavailable:', err);
+    console.warn('Offline support unavailable:', state.error);
     offlineBadge.textContent = 'Offline mode unavailable in this browser';
   }
+  if (document.getElementById('offline-status')) refreshOfflineStatus();
 }
+
+const worker = setupServiceWorker({
+  navigator,
+  onState: onWorkerState,
+  reload: () => window.location.reload(),
+});
+
+if (updateButton) updateButton.addEventListener('click', () => worker.applyUpdate());
+
+// Phones keep the app open all day, so look for a new version every hour as well.
+const hourly = setInterval(() => worker.checkForUpdate(), 60 * 60 * 1000);
+if (typeof hourly === 'object' && hourly.unref) hourly.unref(); // lets test runs exit; no effect in browsers
+
+// ---- "Offline" page ----
+async function refreshOfflineStatus(note = '') {
+  const box = document.getElementById('offline-status');
+  if (!box) return;
+  const status = await collectStatus({ navigator, caches: globalThis.caches });
+  if (document.getElementById('offline-status') !== box) return; // user moved to another page meanwhile
+  box.innerHTML = offlineStatusHtml(status, note);
+}
+
+outlet.addEventListener('click', async (event) => {
+  const el = typeof event.target.closest === 'function' ? event.target.closest('[data-action]') : event.target;
+  const action = el && el.dataset ? el.dataset.action : undefined;
+
+  if (action === 'offline-refresh') {
+    await refreshOfflineStatus();
+  } else if (action === 'check-update') {
+    const waiting = await worker.checkForUpdate();
+    const note = waiting
+      ? 'A new version is ready. Use "Reload to update" in the blue bar.'
+      : navigator.onLine
+        ? 'You already have the latest version.'
+        : 'You are offline, so updates cannot be checked right now.';
+    await refreshOfflineStatus(note);
+  } else if (action === 'offline-clear') {
+    const sure =
+      typeof window.confirm !== 'function' ||
+      window.confirm('Remove the offline copy? You will need a good internet connection to set it up again.');
+    if (!sure) return;
+    const result = await clearOfflineData({ navigator, caches: globalThis.caches });
+    const box = document.getElementById('offline-status');
+    if (!box) return;
+    box.innerHTML = offlineStatusHtml(
+      result.ok
+        ? {
+            tone: 'warn',
+            title: 'Offline copy removed',
+            message: 'The saved app was deleted from this device. Reconnect to the internet and reload the page to set offline mode up again.',
+            details: [{ label: 'Saved copies deleted', value: String(result.deleted) }],
+          }
+        : { tone: 'bad', title: 'Could not remove the offline copy', message: result.error, details: [] },
+    );
+  }
+});
 
 window.addEventListener('hashchange', render);
 updateNetwork();
 render();
-registerServiceWorker();

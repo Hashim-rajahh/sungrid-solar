@@ -275,6 +275,59 @@ export function quoteResultHtml(result) {
   </section>`;
 }
 
+export function offlineView(data) {
+  const { jobs, inventory } = data;
+  const discos = [...new Set(Object.values(cities).map((c) => c.disco))];
+
+  return {
+    title: 'Offline',
+    html: `
+      <h1>Offline and site readiness</h1>
+      <p class="lead">Check this before you drive to a site with weak signal. It shows whether the app is saved on this phone or laptop.</p>
+      <div id="offline-status" aria-live="polite">
+        <section class="card"><h2>Checking…</h2><p class="muted">Looking at what is saved on this device.</p></section>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" type="button" data-action="offline-refresh">Check again</button>
+        <button class="btn" type="button" data-action="check-update">Check for updates</button>
+      </div>
+      <div class="grid-2">
+        <section class="card" aria-labelledby="avail-h"><h2 id="avail-h">Works with no signal</h2>
+          <ul class="list">
+            <li><strong>${esc(jobs.length)} job sheets</strong><br><span class="muted">site, system size, inverter, next step</span></li>
+            <li><strong>${esc(inventory.length)} stock items</strong><br><span class="muted">levels and reorder alerts</span></li>
+            <li><strong>Quote calculator</strong><br><span class="muted">${esc(Object.keys(cities).length)} cities, net-metering utilities ${esc(discos.join(', '))}</span></li>
+          </ul>
+        </section>
+        <section class="card" aria-labelledby="limits-h"><h2 id="limits-h">Good to know</h2>
+          <ul class="list">
+            <li>Job and stock figures are the sample data saved inside the app. Live syncing with the office is a later release.</li>
+            <li>When a new version is ready, a blue bar appears. Update when you are not in the middle of a quote.</li>
+          </ul>
+        </section>
+      </div>
+      <details class="card">
+        <summary>Advanced: remove the offline copy</summary>
+        <p class="muted">This deletes the saved app from this device. Do it only with a good internet connection, because you will need it to set offline mode up again.</p>
+        <button class="btn btn-danger" type="button" data-action="offline-clear">Remove offline copy</button>
+      </details>`,
+  };
+}
+
+/** HTML for the status card, built from describeStatus() output. `note` is an optional extra line. */
+export function offlineStatusHtml(status, note = '') {
+  const cardClass = { ok: 'card-ok', warn: 'card-warn', bad: 'card-error' }[status.tone] ?? '';
+  const rows = status.details
+    .map((d) => `<div class="kv"><dt>${esc(d.label)}</dt><dd>${esc(d.value)}</dd></div>`)
+    .join('');
+  return `<section class="card ${cardClass}" aria-labelledby="off-h">
+    <h2 id="off-h">${esc(status.title)}</h2>
+    <p>${esc(status.message)}</p>
+    ${note ? `<p><strong>${esc(note)}</strong></p>` : ''}
+    <dl>${rows}</dl>
+  </section>`;
+}
+
 export function notFoundView(path) {
   return {
     title: 'Page not found',
@@ -304,6 +357,8 @@ export function renderRoute(route, ctx = {}) {
         return quoteView();
       case 'inventory':
         return inventoryView(data);
+      case 'offline':
+        return offlineView(data);
       default:
         return notFoundView(route.path ?? '');
     }

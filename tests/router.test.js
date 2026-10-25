@@ -9,6 +9,7 @@ test('each known hash resolves to the right route', () => {
   assert.equal(resolve('#/jobs').name, 'jobs');
   assert.equal(resolve('#/quote').name, 'quote');
   assert.equal(resolve('#/inventory').name, 'inventory');
+  assert.equal(resolve('#/offline').name, 'offline');
 });
 
 test('a job route captures its id', () => {

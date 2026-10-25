@@ -24,7 +24,7 @@ function el() {
 }
 
 const elements = {};
-for (const id of ['app', 'net-status', 'offline-ready', 'quote-result', 'units', 'city', 'type', 'units-err', 'city-err', 'type-err']) {
+for (const id of ['app', 'net-status', 'offline-ready', 'quote-result', 'units', 'city', 'type', 'units-err', 'city-err', 'type-err', 'update-banner', 'update-btn', 'offline-status']) {
   elements[id] = el();
 }
 const windowListeners = {};
@@ -51,11 +51,18 @@ Object.defineProperty(globalThis, 'navigator', {
   value: {
     onLine: true,
     serviceWorker: {
+      controller: null,
+      addEventListener() {},
+      getRegistration: async () => undefined,
       register: async () => { throw new Error('Service workers need http(s), not file://'); },
       ready: new Promise(() => {}),
     },
   },
 });
+
+fakeWindow.confirm = () => true;
+
+const tick = () => new Promise((r) => setTimeout(r, 5));
 
 const submit = (values) => {
   const event = { target: { id: 'quote-form', values }, preventDefault() { this.prevented = true; } };
@@ -129,4 +136,48 @@ test('offline banner follows the network state', () => {
 test('a service-worker failure is reported gently and does not break the app', async () => {
   await new Promise((r) => setTimeout(r, 10)); // let the rejected register() settle
   assert.match(elements['offline-ready'].textContent, /Offline mode unavailable/);
+});
+
+// ---- Task 2: the Offline page ----
+test('the Offline page explains clearly when offline mode is not available (no crash)', async () => {
+  fakeWindow.location.hash = '#/offline';
+  windowListeners.hashchange();
+  assert.match(elements.app.innerHTML, /Offline and site readiness/);
+  assert.match(elements.app.innerHTML, /8 job sheets/);
+  await tick();
+  assert.match(elements['offline-status'].innerHTML, /Offline mode is not available here/);
+  assert.match(elements['offline-status'].innerHTML, /Chrome or Edge/);
+});
+
+test('"Check again" re-runs the check, and "Check for updates" explains the result', async () => {
+  elements['offline-status'].innerHTML = '';
+  await elements.app.listeners.click({ target: { dataset: { action: 'offline-refresh' } } });
+  assert.match(elements['offline-status'].innerHTML, /not available here/);
+
+  elements['offline-status'].innerHTML = '';
+  await elements.app.listeners.click({ target: { dataset: { action: 'check-update' } } });
+  assert.match(elements['offline-status'].innerHTML, /You already have the latest version/);
+
+  globalThis.navigator.onLine = false;
+  await elements.app.listeners.click({ target: { dataset: { action: 'check-update' } } });
+  assert.match(elements['offline-status'].innerHTML, /You are offline, so updates cannot be checked/);
+  globalThis.navigator.onLine = true;
+});
+
+test('removing the offline copy asks first, and a failure shows a clear message', async () => {
+  elements['offline-status'].innerHTML = 'untouched';
+  fakeWindow.confirm = () => false;
+  await elements.app.listeners.click({ target: { dataset: { action: 'offline-clear' } } });
+  assert.equal(elements['offline-status'].innerHTML, 'untouched', 'declining must change nothing');
+
+  fakeWindow.confirm = () => true;
+  await elements.app.listeners.click({ target: { dataset: { action: 'offline-clear' } } });
+  assert.match(elements['offline-status'].innerHTML, /Could not remove the offline copy/);
+});
+
+test('clicks on things that are not actions are ignored', async () => {
+  const before = elements['offline-status'].innerHTML;
+  await elements.app.listeners.click({ target: { dataset: {} } });
+  await elements.app.listeners.click({ target: {} });
+  assert.equal(elements['offline-status'].innerHTML, before);
 });

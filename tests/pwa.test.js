@@ -56,7 +56,7 @@ test('no app file is missing from the offline cache (would break offline use)', 
 
 test('service worker has versioned caches and cleans up old ones', async () => {
   const sw = await read('sw.js');
-  assert.match(sw, /const VERSION = 'sungrid-v\d+'/);
+  assert.match(sw, /const VERSION = 'sungrid-[0-9a-f]{8}'/);
   assert.match(sw, /caches\.delete/);
   assert.match(sw, /request\.mode === 'navigate'/);
 });
@@ -68,4 +68,10 @@ test('all asset URLs are relative so the app works under /<repo-name>/ on GitHub
   assert.doesNotMatch(html, /(src|href)="\/[^/]/, 'index.html must not use root-absolute URLs');
   assert.doesNotMatch(manifest, /"(src|start_url|scope)":\s*"\//);
   assert.doesNotMatch(sw, /'\/[a-z]/);
+});
+
+test('netlify.toml publishes the root and never caches the service worker', async () => {
+  const toml = await read('netlify.toml');
+  assert.match(toml, /publish = "\."/);
+  assert.match(toml, /for = "\/sw\.js"[\s\S]*?Cache-Control = "no-cache"/);
 });

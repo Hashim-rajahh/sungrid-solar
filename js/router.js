@@ -9,6 +9,7 @@ export const ROUTES = [
   { name: 'job', pattern: '/jobs/:id' },
   { name: 'quote', pattern: '/quote' },
   { name: 'inventory', pattern: '/inventory' },
+  { name: 'offline', pattern: '/offline' },
 ];
 
 /** decodeURIComponent that returns null instead of throwing on malformed input like "%E0%A4%A". */

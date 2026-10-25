@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { resolve } from '../js/router.js';
-import { renderRoute, quoteResultHtml, stockStatus } from '../js/views.js';
+import { renderRoute, quoteResultHtml, stockStatus, offlineStatusHtml } from '../js/views.js';
 import { calculateQuote } from '../js/quote.js';
 
 const render = (hash, ctx) => renderRoute(resolve(hash), ctx);
@@ -120,4 +120,33 @@ test('stockStatus classifies zero, at-reorder and healthy stock', () => {
   assert.equal(stockStatus({ stock: 0, reorderLevel: 5 }).key, 'out');
   assert.equal(stockStatus({ stock: 5, reorderLevel: 5 }).key, 'low');
   assert.equal(stockStatus({ stock: 6, reorderLevel: 5 }).key, 'ok');
+});
+
+// ---- Task 2: Offline page ----
+test('offline page lists what works with no signal, using the real sample data counts', () => {
+  const { title, html } = render('#/offline');
+  assert.equal(title, 'Offline');
+  assert.match(html, /8 job sheets/);
+  assert.match(html, /10 stock items/);
+  assert.match(html, /LESCO, GEPCO, FESCO, MEPCO, IESCO/);
+  assert.match(html, /data-action="offline-refresh"/);
+  assert.match(html, /data-action="offline-clear"/);
+  assert.match(html, /id="offline-status"/);
+});
+
+test('offline page does not crash with empty data', () => {
+  const { html } = render('#/offline', { jobs: [], inventory: [] });
+  assert.match(html, /0 job sheets/);
+});
+
+test('status card shows tone, details and an extra note, and escapes everything', () => {
+  const html = offlineStatusHtml(
+    { tone: 'bad', title: '<b>Oops</b>', message: 'm', details: [{ label: 'L', value: '<script>x</script>' }] },
+    'note & more',
+  );
+  assert.match(html, /card-error/);
+  assert.match(html, /&lt;b&gt;Oops/);
+  assert.doesNotMatch(html, /<script>/);
+  assert.match(html, /note &amp; more/);
+  assert.match(offlineStatusHtml({ tone: 'ok', title: 't', message: 'm', details: [] }), /card-ok/);
 });

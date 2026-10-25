@@ -68,10 +68,17 @@ a { color: var(--info); }
 
 .net-status { background: var(--warn-bg); color: var(--warn); text-align: center; padding: 8px 16px; font-weight: 600; }
 
+.update-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px 16px; background: var(--info-bg); color: var(--info); padding: 8px 16px; font-weight: 600; }
+.update-banner[hidden] { display: none; }
+.btn-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 16px; }
+.btn-danger { border-color: var(--bad); color: var(--bad); }
+details.card summary { cursor: pointer; font-weight: 700; }
+
 /* cards + grids */
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--radius); padding: 18px; box-shadow: var(--shadow); margin-bottom: 16px; }
 .card-ok { border-color: #a7d9bb; }
 .card-error { border-color: #f0b3ae; background: #fffafa; }
+.card-warn { border-color: #f0cf8f; background: #fffdf6; }
 .grid-2 { display: grid; gap: 16px; grid-template-columns: 1fr; align-items: start; }
 @media (min-width: 760px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
 
