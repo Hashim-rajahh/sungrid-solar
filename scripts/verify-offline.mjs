@@ -8,9 +8,9 @@
 // It works on a throw-away COPY of the project, so it can change a file to simulate a new release.
 // What it proves, in order:
 //   1. first visit online saves the whole app
-//   2. with the network switched OFF: deep links, the quote calculator and the Offline page still work
-//   3. an address without # is sent to the app root instead of showing a broken page
-//   4. a new release is detected, waits (does NOT reload the page by itself), and applies on request
+//   2. a new release is detected, waits (does NOT reload the page by itself), and applies on request
+//   3. with the network switched OFF: deep links, the quote calculator and the Offline page still work
+//   4. an address without # is sent to the app root instead of showing a broken page
 // It also prints timings (median of 7 runs) and exits with code 1 if any check fails.
 
 import { cp, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
@@ -74,7 +74,35 @@ try {
   const shellCount = (await readFile(path.join(site, 'sw.js'), 'utf8')).match(/^\s*'\.\/[^']*',?$/gm).length;
   check('first visit saves the whole app', saved.names.length === 1 && saved.count === shellCount, `${saved.count}/${shellCount} files in ${saved.names[0]}, ${timeToReady} ms to "ready"`);
 
-  // 2 ---- network OFF
+  // 2 ---- a new release
+  // This runs BEFORE the repeated no-signal page loads below on purpose: in Chrome 153 an update check
+  // requested after the app was opened offline three or more times can stay pending, which would test
+  // the browser's queue rather than this app. Updates arrive while the phone has signal, so this is also
+  // the realistic order.
+  const oldVersion = saved.names[0];
+  await page.evaluate(() => { window.__sameDocument = true; });
+  await writeFile(path.join(site, 'css/styles.css'), `${await readFile(path.join(site, 'css/styles.css'), 'utf8')}\n/* release 2 marker */\n`);
+  await run('node', [path.join(site, 'scripts/stamp-sw.mjs')]);
+  const newVersion = /const VERSION = '([^']+)'/.exec(await readFile(path.join(site, 'sw.js'), 'utf8'))[1];
+  check('stamp script produced a new version for the changed file', newVersion !== oldVersion, `${oldVersion} -> ${newVersion}`);
+
+  await page.goto(`${base}/#/offline`); // a normal navigation; the old worker still serves the old copy
+  await page.evaluate(() => { window.__sameDocument = true; });
+  await page.click('[data-action="check-update"]');
+  await page.waitForSelector('#update-banner:not([hidden])', { timeout: 15000 });
+  check('new release is detected and the blue banner appears', true);
+  check('the page was NOT reloaded by itself while the update waited', await page.evaluate(() => window.__sameDocument === true));
+  const during = await page.evaluate(async () => (await caches.keys()).sort());
+  check('both versions are saved while the update waits (nothing half-applied)', during.length === 2 && during.includes(oldVersion) && during.includes(newVersion), during.join(', '));
+
+  await Promise.all([page.waitForNavigation({ timeout: 15000 }), page.click('#update-btn')]);
+  await page.waitForFunction(() => /Ready for offline use/.test(document.getElementById('offline-ready').textContent), null, { timeout: 15000 });
+  const after = await page.evaluate(async () => ({ names: await caches.keys(), css: await (await fetch('./css/styles.css')).text() }));
+  check('after "Reload to update": only the new version remains, with the new file', after.names.length === 1 && after.names[0] === newVersion && after.css.includes('release 2 marker'), after.names.join(', '));
+  check('banner is gone after the update', await page.evaluate(() => document.getElementById('update-banner').hidden));
+
+
+  // 3 ---- network OFF
   await context.setOffline(true);
 
   const loadTimes = [];
@@ -110,7 +138,7 @@ try {
   check('offline: Offline page reports "Ready for site visits"', true, (await status.textContent('#offline-status dl')).replace(/\s+/g, ' ').trim());
   await status.close();
 
-  // 3 ---- address without #
+  // 4 ---- address without #
   const typo = await context.newPage();
   await typo.goto(`${base}/jobs/SG-1042`);
   await typo.waitForSelector('h1');
@@ -119,29 +147,6 @@ try {
 
   check('no console or page errors during offline use', problems.length === 0, problems.join(' | '));
   await context.setOffline(false);
-
-  // 4 ---- a new release
-  const oldVersion = saved.names[0];
-  await page.evaluate(() => { window.__sameDocument = true; });
-  await writeFile(path.join(site, 'css/styles.css'), `${await readFile(path.join(site, 'css/styles.css'), 'utf8')}\n/* release 2 marker */\n`);
-  await run('node', [path.join(site, 'scripts/stamp-sw.mjs')]);
-  const newVersion = /const VERSION = '([^']+)'/.exec(await readFile(path.join(site, 'sw.js'), 'utf8'))[1];
-  check('stamp script produced a new version for the changed file', newVersion !== oldVersion, `${oldVersion} -> ${newVersion}`);
-
-  await page.goto(`${base}/#/offline`); // a normal navigation; the old worker still serves the old copy
-  await page.evaluate(() => { window.__sameDocument = true; });
-  await page.click('[data-action="check-update"]');
-  await page.waitForSelector('#update-banner:not([hidden])', { timeout: 15000 });
-  check('new release is detected and the blue banner appears', true);
-  check('the page was NOT reloaded by itself while the update waited', await page.evaluate(() => window.__sameDocument === true));
-  const during = await page.evaluate(async () => (await caches.keys()).sort());
-  check('both versions are saved while the update waits (nothing half-applied)', during.length === 2 && during.includes(oldVersion) && during.includes(newVersion), during.join(', '));
-
-  await Promise.all([page.waitForNavigation({ timeout: 15000 }), page.click('#update-btn')]);
-  await page.waitForFunction(() => /Ready for offline use/.test(document.getElementById('offline-ready').textContent), null, { timeout: 15000 });
-  const after = await page.evaluate(async () => ({ names: await caches.keys(), css: await (await fetch('./css/styles.css')).text() }));
-  check('after "Reload to update": only the new version remains, with the new file', after.names.length === 1 && after.names[0] === newVersion && after.css.includes('release 2 marker'), after.names.join(', '));
-  check('banner is gone after the update', await page.evaluate(() => document.getElementById('update-banner').hidden));
 
   console.log(`\nTimings (local server, Chromium): first visit to "ready for offline" ${timeToReady} ms; offline deep-link load, median of 7: ${median(loadTimes)} ms (range ${Math.min(...loadTimes)} to ${Math.max(...loadTimes)} ms)`);
 } finally {

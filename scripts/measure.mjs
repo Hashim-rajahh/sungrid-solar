@@ -14,9 +14,12 @@ import { renderRoute } from '../js/views.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Two budgets, because they protect different things:
 //  - FIRST LOAD: what a new visitor must download before the app is usable (HTML, CSS, JS, favicon).
-//  - PRECACHE:   everything saved for offline use, including install icons that are only fetched on demand.
-const BUDGET_FIRST_LOAD_GZIP_KB = 25;
-const BUDGET_PRECACHE_GZIP_KB = 40;
+//    30 KB gzip is about half a second on a 400 kbps 3G link. Raised from 25 KB in Task 3: the install
+//    logic is needed on the first visit (the browser's install offer can arrive at any moment).
+//  - PRECACHE:   everything saved for offline use. It includes every icon the manifest names, so the
+//    app can still be installed with no signal. Raised from 40 KB to 45 KB in Task 3 for the same reason.
+const BUDGET_FIRST_LOAD_GZIP_KB = 30;
+const BUDGET_PRECACHE_GZIP_KB = 45;
 const BUDGET_RENDER_MS = 5; // average per view
 const isFirstLoad = (f) => /\.(html|css|js|svg)$/.test(f);
 
@@ -47,7 +50,7 @@ console.log('-'.repeat(54));
 console.log('FIRST LOAD (html/css/js/svg)'.padEnd(34), `${(firstLoadRaw / 1024).toFixed(1)} KB`.padStart(9), `${(firstLoadGz / 1024).toFixed(1)} KB`.padStart(9));
 console.log('FULL PRECACHE (offline)'.padEnd(34), `${(rawTotal / 1024).toFixed(1)} KB`.padStart(9), `${(gzTotal / 1024).toFixed(1)} KB`.padStart(9));
 
-const routes = ['#/', '#/jobs', '#/jobs/SG-1042', '#/quote', '#/inventory', '#/nope'];
+const routes = ['#/', '#/jobs', '#/jobs/SG-1042', '#/quote', '#/inventory', '#/offline', '#/install', '#/nope'];
 const RUNS = 500;
 console.log(`\nRender time (average of ${RUNS} runs)`);
 let worst = 0;

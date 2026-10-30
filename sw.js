@@ -7,7 +7,7 @@
 // It only takes over when the user taps "Reload to update", so an installer halfway through a
 // quote on a roof never has the app swapped underneath them.
 
-const VERSION = 'sungrid-ca8543e7';
+const VERSION = 'sungrid-3ac372f1';
 
 const SHELL = [
   './',
@@ -16,16 +16,23 @@ const SHELL = [
   './css/styles.css',
   './js/app.js',
   './js/data.js',
+  './js/install.js',
   './js/offline.js',
   './js/quote.js',
   './js/router.js',
   './js/sw-register.js',
   './js/util.js',
   './js/views.js',
+  './icons/apple-touch-icon.png',
+  './icons/favicon-32.png',
   './icons/favicon.svg',
   './icons/icon-192.png',
   './icons/icon-512.png',
+  './icons/icon-maskable-192.png',
   './icons/icon-maskable-512.png',
+  './icons/shortcut-jobs-96.png',
+  './icons/shortcut-quote-96.png',
+  './icons/shortcut-stock-96.png',
 ];
 
 /** Plain-text answer for a file that is neither saved on the device nor reachable on the network. */

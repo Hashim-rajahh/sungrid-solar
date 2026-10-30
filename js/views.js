@@ -3,6 +3,7 @@
 
 import { company, jobs as JOBS, inventory as INVENTORY, STATUSES, cities, pricing } from './data.js';
 import { SYSTEM_TYPES } from './quote.js';
+import { SHORTCUTS } from './install.js';
 import { esc, formatPkr, formatDate, formatNumber, slug } from './util.js';
 
 // ---------- small helpers ----------
@@ -328,6 +329,56 @@ export function offlineStatusHtml(status, note = '') {
   </section>`;
 }
 
+export function installView(data) {
+  const { jobs, inventory } = data;
+  const shortcuts = SHORTCUTS.map(
+    (sc) =>
+      `<li><img src="./${esc(sc.icon)}" alt="" width="40" height="40"><span><strong>${esc(sc.name)}</strong><br><span class="muted">${esc(sc.description)}</span></span></li>`,
+  ).join('');
+
+  return {
+    title: 'Install',
+    html: `
+      <h1>Install SunGrid Solar</h1>
+      <p class="lead">Put the app on your home screen so job sheets, the quote calculator and stock levels are one tap away, with or without signal.</p>
+      <div id="install-status" aria-live="polite">
+        <section class="card"><h2>Checking…</h2><p class="muted">Looking at what this device can do.</p></section>
+      </div>
+      <div class="grid-2">
+        <section class="card" aria-labelledby="why-h"><h2 id="why-h">Why install it</h2>
+          <ul class="list">
+            <li><strong>Opens like an app</strong><br><span class="muted">Full screen from the home screen. No app store, nothing to update by hand.</span></li>
+            <li><strong>Works with no signal</strong><br><span class="muted">${esc(jobs.length)} job sheets, ${esc(inventory.length)} stock items and the quote calculator are saved on the device.</span></li>
+            <li><strong>Jump straight to work</strong><br><span class="muted">On Android, press and hold the icon to open these directly:</span></li>
+          </ul>
+          <ul class="shortcut-list">${shortcuts}</ul>
+        </section>
+        <section class="card" aria-labelledby="icon-h"><h2 id="icon-h">Your app icon</h2>
+          <p class="muted">Phones cut icons into different shapes. This is how SunGrid Solar looks on each.</p>
+          <div class="icon-row">
+            <figure class="icon-figure"><img class="mask-circle" src="./icons/icon-maskable-192.png" alt="Icon cut to a circle" width="72" height="72"><figcaption>Round<br>(some Android)</figcaption></figure>
+            <figure class="icon-figure"><img class="mask-squircle" src="./icons/icon-maskable-192.png" alt="Icon cut to a rounded square" width="72" height="72"><figcaption>Rounded square<br>(most Android)</figcaption></figure>
+            <figure class="icon-figure"><img class="mask-squircle" src="./icons/apple-touch-icon.png" alt="iPhone home screen icon" width="72" height="72"><figcaption>iPhone and iPad</figcaption></figure>
+          </div>
+        </section>
+      </div>`,
+  };
+}
+
+/** HTML for the install status card, built from describeInstall() output. `note` is an optional extra line. */
+export function installStatusHtml(status, note = '') {
+  const cardClass = { ok: 'card-ok', warn: 'card-warn', bad: 'card-error' }[status.tone] ?? '';
+  const steps = status.steps.length ? `<ol class="how-steps">${status.steps.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>` : '';
+  const action = status.action === 'install' ? '<p><button class="btn btn-primary" type="button" data-action="install-now">Install SunGrid Solar</button></p>' : '';
+  return `<section class="card ${cardClass}" aria-labelledby="inst-h">
+    <h2 id="inst-h">${esc(status.title)}</h2>
+    <p>${esc(status.message)}</p>
+    ${note ? `<p><strong>${esc(note)}</strong></p>` : ''}
+    ${steps}
+    ${action}
+  </section>`;
+}
+
 export function notFoundView(path) {
   return {
     title: 'Page not found',
@@ -359,6 +410,8 @@ export function renderRoute(route, ctx = {}) {
         return inventoryView(data);
       case 'offline':
         return offlineView(data);
+      case 'install':
+        return installView(data);
       default:
         return notFoundView(route.path ?? '');
     }

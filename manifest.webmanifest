@@ -1,16 +1,116 @@
 {
+  "id": "sungrid-solar",
   "name": "SunGrid Solar",
   "short_name": "SunGrid",
   "description": "Jobs, quotes and stock for a solar panel installer. Works offline.",
+  "lang": "en",
+  "dir": "ltr",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "any",
   "background_color": "#0f2a43",
   "theme_color": "#0f2a43",
+  "categories": [
+    "business",
+    "productivity"
+  ],
+  "prefer_related_applications": false,
   "icons": [
-    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "New quote",
+      "short_name": "Quote",
+      "description": "Size a system from a customer's electricity bill",
+      "url": "./#/quote",
+      "icons": [
+        {
+          "src": "icons/shortcut-quote-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Installs in progress",
+      "short_name": "Installs",
+      "description": "Jobs that are being installed right now",
+      "url": "./#/jobs?status=Installing",
+      "icons": [
+        {
+          "src": "icons/shortcut-jobs-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "Stock to reorder",
+      "short_name": "Stock",
+      "description": "Panels, inverters and batteries at or below reorder level",
+      "url": "./#/inventory",
+      "icons": [
+        {
+          "src": "icons/shortcut-stock-96.png",
+          "sizes": "96x96",
+          "type": "image/png"
+        }
+      ]
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshots/phone-dashboard.png",
+      "sizes": "540x960",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Dashboard: jobs in progress, pipeline value, installed capacity and stock to reorder"
+    },
+    {
+      "src": "screenshots/phone-job.png",
+      "sizes": "540x960",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Job sheet for SG-1043: system size, inverter, batteries and next step"
+    },
+    {
+      "src": "screenshots/phone-quote.png",
+      "sizes": "540x960",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "Quote for a 600 unit Lahore home: 9 panels, Rs 8,28,000, LESCO net-metering"
+    },
+    {
+      "src": "screenshots/desktop-dashboard.png",
+      "sizes": "1280x720",
+      "type": "image/png",
+      "form_factor": "wide",
+      "label": "Dashboard on a laptop"
+    }
   ]
 }

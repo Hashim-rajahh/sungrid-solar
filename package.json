@@ -1,16 +1,20 @@
 {
   "name": "sungrid-solar",
-  "version": "0.2.0",
-  "description": "SunGrid Solar offline-ready PWA: app shell and routing (Tasks 1-2)",
+  "version": "0.3.0",
+  "description": "SunGrid Solar offline-ready PWA: app shell, offline cache, install prompt and icons (Tasks 1-3)",
   "private": true,
   "type": "module",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node scripts/serve.mjs",
     "test": "node --test",
     "measure": "node scripts/measure.mjs",
     "icons": "python3 scripts/make-icons.py",
     "stamp": "node scripts/stamp-sw.mjs",
-    "verify:offline": "node scripts/verify-offline.mjs"
+    "verify:offline": "node scripts/verify-offline.mjs",
+    "verify:install": "node scripts/verify-install.mjs",
+    "screenshots": "node scripts/make-screenshots.mjs"
   }
 }

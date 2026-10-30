@@ -2,10 +2,11 @@
 // quote.js / offline.js / sw-register.js, which are tested without a browser.
 
 import { resolve } from './router.js';
-import { renderRoute, quoteResultHtml, offlineStatusHtml } from './views.js';
+import { renderRoute, quoteResultHtml, offlineStatusHtml, installStatusHtml } from './views.js';
 import { calculateQuote } from './quote.js';
 import { collectStatus, clearOfflineData } from './offline.js';
 import { setupServiceWorker } from './sw-register.js';
+import { createInstallController, bannerCopy } from './install.js';
 import { company } from './data.js';
 
 const outlet = document.getElementById('app');
@@ -13,14 +14,17 @@ const netStatus = document.getElementById('net-status');
 const offlineBadge = document.getElementById('offline-ready');
 const updateBanner = document.getElementById('update-banner');
 const updateButton = document.getElementById('update-btn');
+const installBanner = document.getElementById('install-banner');
 let firstRender = true;
+let currentRoute = 'dashboard';
 
 // Which nav link to highlight for each route ("job" belongs under "Jobs").
-const NAV_FOR = { dashboard: 'dashboard', jobs: 'jobs', job: 'jobs', quote: 'quote', inventory: 'inventory', offline: 'offline' };
+const NAV_FOR = { dashboard: 'dashboard', jobs: 'jobs', job: 'jobs', quote: 'quote', inventory: 'inventory', offline: 'offline', install: 'install' };
 
 function render() {
   const route = resolve(window.location.hash);
   const { title, html } = renderRoute(route);
+  currentRoute = route.name;
 
   outlet.innerHTML = html;
   document.title = `${title} · ${company.name}`;
@@ -38,6 +42,8 @@ function render() {
   firstRender = false;
 
   if (route.name === 'offline') refreshOfflineStatus();
+  installer.noteScreen();
+  refreshInstallUi();
 }
 
 // ---- Quote form (event delegation, because the form is re-created on every visit) ----
@@ -108,6 +114,61 @@ if (updateButton) updateButton.addEventListener('click', () => worker.applyUpdat
 const hourly = setInterval(() => worker.checkForUpdate(), 60 * 60 * 1000);
 if (typeof hourly === 'object' && hourly.unref) hourly.unref(); // lets test runs exit; no effect in browsers
 
+// ---- Install prompt and icons ----
+function safeStorage() {
+  try {
+    return window.localStorage ?? null; // reading the property itself can throw when site data is blocked
+  } catch {
+    return null;
+  }
+}
+
+const installer = createInstallController({
+  window,
+  navigator,
+  storage: safeStorage(),
+  onChange: () => refreshInstallUi(),
+});
+
+function refreshInstallUi(note = '') {
+  const status = installer.status();
+
+  // Install page: the status card.
+  const box = document.getElementById('install-status');
+  if (box) box.innerHTML = installStatusHtml(status, note);
+
+  // The bar: never on the Install page itself, and only when it can help.
+  if (installBanner) {
+    const show = currentRoute !== 'install' && installer.shouldShowBanner();
+    installBanner.hidden = !show;
+    if (show) {
+      const copy = bannerCopy(status);
+      document.getElementById('install-banner-text').textContent = copy.text;
+      document.getElementById('install-btn').hidden = copy.link;
+      document.getElementById('install-how').hidden = !copy.link;
+    }
+  }
+
+  // Once installed there is nothing left to do on the Install page, so drop it from the menu.
+  const navItem = document.getElementById('nav-install');
+  if (navItem) navItem.hidden = status.state === 'installed';
+}
+
+async function runInstall() {
+  const result = await installer.promptInstall();
+  const note = !result.ok
+    ? result.message
+    : result.outcome === 'accepted'
+      ? 'Installing now. Look for SunGrid Solar on your home screen.'
+      : 'Install cancelled. You can try again later from this page.';
+  refreshInstallUi(note);
+}
+
+const installNow = document.getElementById('install-btn');
+if (installNow) installNow.addEventListener('click', runInstall);
+const installLater = document.getElementById('install-later');
+if (installLater) installLater.addEventListener('click', () => installer.snooze());
+
 // ---- "Offline" page ----
 async function refreshOfflineStatus(note = '') {
   const box = document.getElementById('offline-status');
@@ -121,7 +182,9 @@ outlet.addEventListener('click', async (event) => {
   const el = typeof event.target.closest === 'function' ? event.target.closest('[data-action]') : event.target;
   const action = el && el.dataset ? el.dataset.action : undefined;
 
-  if (action === 'offline-refresh') {
+  if (action === 'install-now') {
+    await runInstall();
+  } else if (action === 'offline-refresh') {
     await refreshOfflineStatus();
   } else if (action === 'check-update') {
     const waiting = await worker.checkForUpdate();

@@ -8,7 +8,11 @@
     <meta name="theme-color" content="#0f2a43" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icons/favicon.svg" type="image/svg+xml" />
-    <link rel="apple-touch-icon" href="./icons/icon-192.png" />
+    <link rel="icon" href="./icons/favicon-32.png" sizes="32x32" type="image/png" />
+    <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="SunGrid" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="stylesheet" href="./css/styles.css" />
   </head>
   <body>
@@ -32,6 +36,7 @@
             <li><a data-nav="quote" href="#/quote">Quote</a></li>
             <li><a data-nav="inventory" href="#/inventory">Inventory</a></li>
             <li><a data-nav="offline" href="#/offline">Offline</a></li>
+            <li id="nav-install"><a data-nav="install" href="#/install">Install</a></li>
           </ul>
         </nav>
       </div>
@@ -41,6 +46,13 @@
     <div id="update-banner" class="update-banner" role="status" hidden>
       <span>A new version of SunGrid Solar is ready.</span>
       <button id="update-btn" class="btn btn-primary" type="button">Reload to update</button>
+    </div>
+
+    <div id="install-banner" class="install-banner" role="region" aria-label="Install SunGrid Solar" hidden>
+      <span id="install-banner-text">Install SunGrid Solar on this device.</span>
+      <button id="install-btn" class="btn btn-primary" type="button">Install</button>
+      <a id="install-how" class="btn btn-primary" href="#/install" hidden>Show me how</a>
+      <button id="install-later" class="btn" type="button">Not now</button>
     </div>
 
     <main id="app" class="container" tabindex="-1">
