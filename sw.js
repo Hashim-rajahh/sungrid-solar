@@ -7,7 +7,7 @@
 // It only takes over when the user taps "Reload to update", so an installer halfway through a
 // quote on a roof never has the app swapped underneath them.
 
-const VERSION = 'sungrid-3ac372f1';
+const VERSION = 'sungrid-360faaeb';
 
 const SHELL = [
   './',

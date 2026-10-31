@@ -152,7 +152,7 @@ input[aria-invalid='true'], select[aria-invalid='true'] { border-color: var(--ba
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 
 /* install page: icon previews, steps */
-.icon-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-end; margin: 4px 0 8px; }
+.icon-row { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; margin: 4px 0 8px; }
 .icon-figure { margin: 0; text-align: center; font-size: 0.85rem; color: var(--muted); }
 .icon-figure img { display: block; margin: 0 auto 6px; width: 72px; height: 72px; }
 .mask-circle { border-radius: 50%; }
