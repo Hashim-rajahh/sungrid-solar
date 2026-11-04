@@ -6,8 +6,16 @@
 // Update policy (see README, "Decision"): a new version installs in the background and WAITS.
 // It only takes over when the user taps "Reload to update", so an installer halfway through a
 // quote on a roof never has the app swapped underneath them.
+//
+// Background sync (see README, "Decision" of step 4): site reports saved in the on-device outbox are sent
+// from here when the connection returns, even if the app is closed. The outbox code is shared with the
+// page through importScripts (js/outbox-core.js) instead of being copied. This file stays a classic
+// worker on purpose: see the header of js/outbox-core.js.
 
-const VERSION = 'sungrid-360faaeb';
+importScripts('./js/outbox-core.js');
+const { openOutbox, flushWithLock, sendReport, SYNC_TAG } = self.SunGridOutbox;
+
+const VERSION = 'sungrid-45a8b4e7';
 
 const SHELL = [
   './',
@@ -18,6 +26,8 @@ const SHELL = [
   './js/data.js',
   './js/install.js',
   './js/offline.js',
+  './js/outbox.js',
+  './js/outbox-core.js',
   './js/quote.js',
   './js/router.js',
   './js/sw-register.js',
@@ -129,3 +139,35 @@ self.addEventListener('message', (event) => {
     );
   }
 });
+
+// ---- Background sync: send the reports waiting in the outbox ----
+
+self.addEventListener('sync', (event) => {
+  if (event.tag !== SYNC_TAG) return;
+  event.waitUntil(sendQueuedReports());
+});
+
+async function sendQueuedReports() {
+  const { outbox, durable } = await openOutbox(self.indexedDB);
+  if (!durable) return; // nothing can be stored here, so there is nothing to send
+
+  const result = await flushWithLock({
+    locks: self.navigator && self.navigator.locks,
+    outbox,
+    send: (record) => sendReport(record),
+  });
+  await tellPages();
+
+  // A temporary failure must REJECT: that is what makes the browser schedule another try.
+  if (result.stopped) throw new Error(result.error || 'Reports could not be sent yet');
+}
+
+/** Open pages redraw their report list when the worker has sent something. Best effort. */
+async function tellPages() {
+  try {
+    const pages = await self.clients.matchAll({ type: 'window' });
+    for (const page of pages) page.postMessage({ type: 'OUTBOX_CHANGED' });
+  } catch {
+    /* no page to tell */
+  }
+}

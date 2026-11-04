@@ -35,6 +35,7 @@
             <li><a data-nav="jobs" href="#/jobs">Jobs</a></li>
             <li><a data-nav="quote" href="#/quote">Quote</a></li>
             <li><a data-nav="inventory" href="#/inventory">Inventory</a></li>
+            <li><a data-nav="reports" href="#/reports">Reports <span id="outbox-count" class="count" hidden></span></a></li>
             <li><a data-nav="offline" href="#/offline">Offline</a></li>
             <li id="nav-install"><a data-nav="install" href="#/install">Install</a></li>
           </ul>
@@ -66,6 +67,14 @@
         <span id="offline-ready" class="muted" role="status">Checking offline support…</span>
       </div>
     </footer>
+
+    <!-- Not shown. Netlify reads this form at deploy time so it knows to accept the reports the app POSTs
+         to "/" (js/outbox-core.js, FORM_NAME). The field names must match encodeReport(). -->
+    <form name="site-report" method="POST" data-netlify="true" hidden>
+      <input type="hidden" name="form-name" value="site-report" />
+      <input name="report_id" /><input name="job" /><input name="kind" /><input name="panels" />
+      <textarea name="note"></textarea><input name="installer" /><input name="reported_at" />
+    </form>
 
     <script type="module" src="./js/app.js"></script>
   </body>

@@ -7,9 +7,12 @@ import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { fakeIndexedDB } from './helpers/fake-idb.js';
+import { openOutbox, createRecord, SYNC_TAG, LOCK_NAME } from '../js/outbox.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = await readFile(path.join(root, 'sw.js'), 'utf8');
+const OUTBOX_CORE = await readFile(path.join(root, 'js/outbox-core.js'), 'utf8'); // what importScripts loads
 const BASE = 'https://sungrid.test/';
 const VERSION = /const VERSION = '([^']+)'/.exec(SOURCE)[1];
 const SHELL = [...(/const SHELL = \[([\s\S]*?)\];/.exec(SOURCE)[1]).matchAll(/'\.\/([^']*)'/g)].map((m) => m[1]);
@@ -46,7 +49,7 @@ function makeCache(store) {
 let world;
 
 /** Build a fresh sandbox. `site` maps URL paths to bodies; `online` toggles the fake network. */
-function makeWorld({ online = true, site = defaultSite(), caches: seeded = {}, storageBroken = false } = {}) {
+function makeWorld({ online = true, site = defaultSite(), caches: seeded = {}, storageBroken = false, idb = fakeIndexedDB(), locks = null, pages = [] } = {}) {
   const stores = new Map(Object.entries(seeded).map(([name, files]) => [name, new Map(Object.entries(files).map(([u, body]) => [abs(u), new Response(body)]))]));
   const listeners = {};
   const spies = { skipWaiting: 0, claim: 0, fetched: [] };
@@ -54,6 +57,13 @@ function makeWorld({ online = true, site = defaultSite(), caches: seeded = {}, s
   world = {
     online,
     site,
+    posts: [], // reports the fake office server received
+    postStatus: 200,
+    async post(init) {
+      if (!world.online) throw new TypeError('Failed to fetch');
+      world.posts.push(Object.fromEntries(new URLSearchParams(init.body)));
+      return { status: world.postStatus };
+    },
     async fetch(req) {
       const url = abs(req);
       spies.fetched.push(url);
@@ -70,8 +80,14 @@ function makeWorld({ online = true, site = defaultSite(), caches: seeded = {}, s
     Request: FakeRequest,
     Response,
     URL,
+    URLSearchParams,
     console,
-    fetch: (r) => world.fetch(r),
+    // a POST is a report going to the office; everything else is a file
+    fetch: (r, init) => (init && init.method === 'POST' ? world.post(init) : world.fetch(r)),
+    importScripts: (url) => {
+      assert.equal(url, './js/outbox-core.js');
+      vm.runInContext(OUTBOX_CORE, sandbox, { filename: 'outbox-core.js' });
+    },
     caches: {
       async open(name) {
         if (storageBroken) throw new Error('storage disabled');
@@ -84,7 +100,12 @@ function makeWorld({ online = true, site = defaultSite(), caches: seeded = {}, s
     self: {
       location: new URL(`${BASE}sw.js`),
       registration: { scope: BASE },
-      clients: { claim: async () => { spies.claim++; } },
+      indexedDB: idb,
+      navigator: { locks },
+      clients: {
+        claim: async () => { spies.claim++; },
+        matchAll: async () => pages,
+      },
       skipWaiting: () => { spies.skipWaiting++; },
       addEventListener: (type, fn) => { listeners[type] = fn; },
     },
@@ -101,6 +122,16 @@ function makeWorld({ online = true, site = defaultSite(), caches: seeded = {}, s
       const pending = [];
       listeners[type]({ waitUntil: (p) => pending.push(p) });
       await Promise.all(pending);
+    },
+    idb,
+    posts: () => world.posts,
+    setPostStatus(status) { world.postStatus = status; },
+    /** Fire a Background Sync event; resolves when the worker is done, rejects if it asked the browser to retry. */
+    async sync(tag = SYNC_TAG) {
+      const pending = [];
+      listeners.sync({ tag, waitUntil: (p) => pending.push(p) });
+      await Promise.all(pending);
+      return pending.length;
     },
     /** Returns the Response the worker answered with, or null if it did not handle the request. */
     async fetch(url, { mode = 'cors', method = 'GET' } = {}) {
@@ -263,4 +294,111 @@ test('GET_STATUS without a reply port, and unknown messages, are ignored safely'
   assert.equal(await w.message({ type: 'GET_STATUS' }, false), undefined);
   assert.equal(await w.message({ type: 'SOMETHING_ELSE' }), undefined);
   assert.equal(await w.message(undefined), undefined);
+});
+
+// ---------------- background sync: sending the outbox from the worker ----------------
+const REPORT = { jobId: 'SG-1043', kind: 'Progress update', panels: 6, note: 'East roof done', installer: 'Imran Khalid' };
+
+/** Put reports into the shared fake IndexedDB, the way the page would while offline. Returns the page-side outbox. */
+async function fileReports(w, count = 1, extra = {}) {
+  const { outbox, durable } = await openOutbox(w.idb);
+  assert.equal(durable, true);
+  for (let i = 0; i < count; i++) {
+    await outbox.add(createRecord({ ...REPORT, panels: i + 1, ...extra }, { now: new Date(Date.UTC(2026, 9, 30, 8, 0, i)), id: `R-test-${i + 1}` }));
+  }
+  return outbox;
+}
+
+test('sync: the worker sends the waiting reports, oldest first, and marks them sent', async () => {
+  const w = makeWorld();
+  const outbox = await fileReports(w, 3);
+  await w.sync();
+
+  assert.deepEqual(w.posts().map((p) => p.report_id), ['R-test-1', 'R-test-2', 'R-test-3']);
+  assert.equal(w.posts()[0]['form-name'], 'site-report');
+  assert.equal(w.posts()[0].job, 'SG-1043');
+  assert.deepEqual((await outbox.list()).map((r) => r.status), ['sent', 'sent', 'sent']);
+});
+
+test('sync: a sync event for some other tag is ignored', async () => {
+  const w = makeWorld();
+  await fileReports(w, 1);
+  assert.equal(await w.sync('someone-elses-tag'), 0, 'no work was started');
+  assert.equal(w.posts().length, 0);
+});
+
+test('sync: with no connection the worker REJECTS (so the browser tries again later) and the report stays waiting', async () => {
+  const w = makeWorld({ online: false });
+  const outbox = await fileReports(w, 2);
+  await assert.rejects(() => w.sync(), /No connection/);
+
+  const [first, second] = await outbox.list();
+  assert.equal(first.status, 'pending');
+  assert.equal(first.attempts, 1);
+  assert.match(first.lastError, /No connection/);
+  assert.equal(second.attempts, 0, 'stopped at the first failure: the second was not even tried');
+});
+
+test('sync: when the signal returns, the very same reports go out (nothing lost, nothing doubled)', async () => {
+  const w = makeWorld({ online: false });
+  const outbox = await fileReports(w, 2);
+  await assert.rejects(() => w.sync());
+  w.setOnline(true);
+  await w.sync();
+
+  assert.deepEqual(w.posts().map((p) => p.report_id), ['R-test-1', 'R-test-2']);
+  assert.deepEqual((await outbox.list()).map((r) => r.status), ['sent', 'sent']);
+});
+
+test('sync: a server error (500) asks for a retry; the report is kept', async () => {
+  const w = makeWorld();
+  w.setPostStatus(503);
+  const outbox = await fileReports(w, 1);
+  await assert.rejects(() => w.sync(), /busy/);
+  assert.equal((await outbox.list())[0].status, 'pending');
+});
+
+test('sync: a refusal (400) is final for that report: marked rejected, no endless retry, and the queue moves on', async () => {
+  const w = makeWorld();
+  w.setPostStatus(400);
+  const outbox = await fileReports(w, 2);
+  await w.sync(); // must RESOLVE: rejecting would make the browser retry text the server will never accept
+
+  const rows = await outbox.list();
+  assert.deepEqual(rows.map((r) => r.status), ['rejected', 'rejected'], 'the second report was still tried');
+  assert.match(rows[0].lastError, /refused this report \(error 400\)/);
+  assert.equal(w.posts().length, 2);
+});
+
+test('sync: the worker does not crash when the on-device storage cannot be opened', async () => {
+  const w = makeWorld({ idb: fakeIndexedDB({ openError: new Error('storage blocked') }) });
+  await w.sync(); // resolves: nothing to send, nothing to retry
+  assert.equal(w.posts().length, 0);
+});
+
+test('sync: open pages are told, so the report list updates without a reload', async () => {
+  const told = [];
+  const w = makeWorld({ pages: [{ postMessage: (m) => told.push(m) }, { postMessage: (m) => told.push(m) }] });
+  await fileReports(w, 1);
+  await w.sync();
+  assert.deepEqual(JSON.parse(JSON.stringify(told)), [{ type: 'OUTBOX_CHANGED' }, { type: 'OUTBOX_CHANGED' }]);
+});
+
+test('sync: two senders at once (page + worker) do not post the same report twice when Web Locks is available', async () => {
+  const lockNames = [];
+  let tail = Promise.resolve();
+  const locks = { request: (name, callback) => { lockNames.push(name); const run = tail.then(() => callback()); tail = run.catch(() => {}); return run; } };
+  const w = makeWorld({ locks });
+  await fileReports(w, 2);
+
+  await Promise.all([w.sync(), w.sync()]);
+
+  assert.equal(w.posts().length, 2, 'each report was posted exactly once');
+  assert.deepEqual([...new Set(lockNames)], [LOCK_NAME]);
+});
+
+test('sync: the worker is classic (importScripts) so devices that installed earlier versions can still update', () => {
+  assert.match(SOURCE, /importScripts\('\.\/js\/outbox-core\.js'\)/);
+  assert.doesNotMatch(SOURCE, /^\s*(import|export)\s/m, 'an import/export statement would be a syntax error in a classic worker');
+  assert.ok(SHELL.includes('js/outbox-core.js') && SHELL.includes('js/outbox.js'), 'both outbox files are saved for offline use');
 });

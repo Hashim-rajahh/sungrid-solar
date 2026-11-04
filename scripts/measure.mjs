@@ -14,12 +14,14 @@ import { renderRoute } from '../js/views.js';
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 // Two budgets, because they protect different things:
 //  - FIRST LOAD: what a new visitor must download before the app is usable (HTML, CSS, JS, favicon).
-//    30 KB gzip is about half a second on a 400 kbps 3G link. Raised from 25 KB in Task 3: the install
-//    logic is needed on the first visit (the browser's install offer can arrive at any moment).
+//    40 KB gzip is about 0.8 s on a 400 kbps 3G link. Raised from 25 KB to 30 KB in Task 3 (the install
+//    logic is needed on the first visit) and to 40 KB in Task 4 (the outbox and the report form: a report
+//    can be filed on the very first visit, so they cannot be loaded later).
 //  - PRECACHE:   everything saved for offline use. It includes every icon the manifest names, so the
-//    app can still be installed with no signal. Raised from 40 KB to 45 KB in Task 3 for the same reason.
-const BUDGET_FIRST_LOAD_GZIP_KB = 30;
-const BUDGET_PRECACHE_GZIP_KB = 45;
+//    app can still be installed with no signal. Raised from 40 KB to 45 KB in Task 3 and to 55 KB in Task 4,
+//    for the same reasons.
+const BUDGET_FIRST_LOAD_GZIP_KB = 40;
+const BUDGET_PRECACHE_GZIP_KB = 55;
 const BUDGET_RENDER_MS = 5; // average per view
 const isFirstLoad = (f) => /\.(html|css|js|svg)$/.test(f);
 

@@ -4,6 +4,7 @@ function element() {
   const attrs = {};
   return {
     innerHTML: '',
+    value: '',
     textContent: '',
     hidden: false,
     dataset: {},
@@ -21,7 +22,15 @@ const IDS = [
   'app', 'net-status', 'offline-ready', 'update-banner', 'update-btn', 'install-banner', 'install-banner-text',
   'install-btn', 'install-how', 'install-later', 'nav-install', 'install-status', 'offline-status',
   'quote-result', 'units', 'city', 'type', 'units-err', 'city-err', 'type-err',
+  'outbox-count',
 ];
+// Only on the Reports page, so they are "found" only while that page is on screen.
+const REPORT_PAGE_IDS = [
+  'reports-list', 'report-result',
+  'report-job', 'report-kind', 'report-panels', 'report-note', 'report-installer',
+  'report-job-err', 'report-kind-err', 'report-panels-err', 'report-note-err', 'report-installer-err',
+];
+for (const id of REPORT_PAGE_IDS) IDS.push(id);
 
 /**
  * Installs window, document, navigator, FormData as globals.
@@ -42,6 +51,7 @@ export function installFakeBrowser({ windowExtras = {}, navigatorExtras = {} } =
   // Copy descriptors, not values, so a getter that throws (blocked site storage) stays lazy like in a real browser.
   Object.defineProperties(fakeWindow, Object.getOwnPropertyDescriptors(windowExtras));
   const pageOnly = { 'install-status': 'id="install-status"', 'offline-status': 'id="offline-status"' };
+  for (const id of REPORT_PAGE_IDS) pageOnly[id] = `id="${id}"`;
   const fakeDocument = {
     title: '',
     getElementById(id) {
@@ -76,7 +86,7 @@ export function installFakeBrowser({ windowExtras = {}, navigatorExtras = {} } =
     windowListeners,
     goto(hash) { fakeWindow.location.hash = hash; windowListeners.hashchange(); },
     /** Click something that carries data-action inside the page. */
-    clickAction(action) { return elements.app.listeners.click({ target: { closest: () => ({ dataset: { action } }) } }); },
+    clickAction(action, extra = {}) { return elements.app.listeners.click({ target: { closest: () => ({ dataset: { action, ...extra } }) } }); },
   };
 }
 

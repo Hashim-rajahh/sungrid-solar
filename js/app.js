@@ -2,12 +2,21 @@
 // quote.js / offline.js / sw-register.js, which are tested without a browser.
 
 import { resolve } from './router.js';
-import { renderRoute, quoteResultHtml, offlineStatusHtml, installStatusHtml } from './views.js';
+import { renderRoute, quoteResultHtml, offlineStatusHtml, installStatusHtml, reportsListHtml, reportOutcomeHtml } from './views.js';
 import { calculateQuote } from './quote.js';
 import { collectStatus, clearOfflineData } from './offline.js';
 import { setupServiceWorker } from './sw-register.js';
 import { createInstallController, bannerCopy } from './install.js';
-import { company } from './data.js';
+import { company, jobs, sampleReports } from './data.js';
+import {
+  validateReport,
+  createRecord,
+  openOutbox,
+  sendReport,
+  flushWithLock,
+  registerBackgroundSync,
+  countRecords,
+} from './outbox.js';
 
 const outlet = document.getElementById('app');
 const netStatus = document.getElementById('net-status');
@@ -19,7 +28,7 @@ let firstRender = true;
 let currentRoute = 'dashboard';
 
 // Which nav link to highlight for each route ("job" belongs under "Jobs").
-const NAV_FOR = { dashboard: 'dashboard', jobs: 'jobs', job: 'jobs', quote: 'quote', inventory: 'inventory', offline: 'offline', install: 'install' };
+const NAV_FOR = { dashboard: 'dashboard', jobs: 'jobs', job: 'jobs', quote: 'quote', inventory: 'inventory', offline: 'offline', install: 'install', reports: 'reports' };
 
 function render() {
   const route = resolve(window.location.hash);
@@ -42,12 +51,18 @@ function render() {
   firstRender = false;
 
   if (route.name === 'offline') refreshOfflineStatus();
+  if (route.name === 'reports') refreshReports();
   installer.noteScreen();
   refreshInstallUi();
 }
 
-// ---- Quote form (event delegation, because the form is re-created on every visit) ----
+// ---- Quote and report forms (event delegation, because the forms are re-created on every visit) ----
 outlet.addEventListener('submit', (event) => {
+  if (event.target.id === 'report-form') {
+    event.preventDefault();
+    submitReport(event.target).catch((err) => console.warn('Report form failed:', err));
+    return;
+  }
   if (event.target.id !== 'quote-form') return;
   event.preventDefault();
 
@@ -75,6 +90,109 @@ outlet.addEventListener('submit', (event) => {
   }
 });
 
+// ---- Site reports: outbox, sending and Background Sync (step 4) ----
+const outboxReady = openOutbox(globalThis.indexedDB); // never rejects: falls back to memory and says so
+const REPORT_FIELDS = { jobId: 'report-job', kind: 'report-kind', panels: 'report-panels', note: 'report-note', installer: 'report-installer' };
+let exampleIndex = 0;
+
+/** Redraw everything that shows the outbox: the list on the Reports page and the count in the menu. */
+async function refreshReports() {
+  try {
+    const { outbox, durable } = await outboxReady;
+    const records = await outbox.list();
+
+    const list = document.getElementById('reports-list');
+    if (list) list.innerHTML = reportsListHtml(records, { durable });
+
+    const badge = document.getElementById('outbox-count');
+    if (badge) {
+      const { unsent } = countRecords(records);
+      badge.hidden = unsent === 0;
+      badge.innerHTML = unsent ? `${unsent}<span class="sr-only"> reports not yet sent</span>` : '';
+    }
+  } catch (err) {
+    console.warn('Could not read the report outbox:', err);
+  }
+}
+
+/** Send what is waiting. Safe to call from anywhere: one sender at a time, and it never throws. */
+async function flushReports() {
+  try {
+    const { outbox } = await outboxReady;
+    const result = await flushWithLock({ locks: navigator.locks, outbox, send: (record) => sendReport(record) });
+    await refreshReports();
+    return result;
+  } catch (err) {
+    console.warn('Could not send reports:', err);
+    return { sent: 0, rejected: 0, left: 0, stopped: true, error: String(err && err.message ? err.message : err) };
+  }
+}
+
+async function submitReport(formElement) {
+  const form = new FormData(formElement);
+  const input = {};
+  for (const field of Object.keys(REPORT_FIELDS)) input[field] = form.get(field);
+
+  const check = validateReport(input, jobs);
+  for (const [field, id] of Object.entries(REPORT_FIELDS)) {
+    const box = document.getElementById(`${id}-err`);
+    const control = document.getElementById(id);
+    const message = check.ok ? '' : check.errors[field] ?? '';
+    if (box) box.textContent = message;
+    if (control) {
+      if (message) control.setAttribute('aria-invalid', 'true');
+      else control.removeAttribute('aria-invalid');
+    }
+  }
+  const result = document.getElementById('report-result');
+  const show = (outcome) => { if (result) result.innerHTML = reportOutcomeHtml(outcome); };
+
+  if (!check.ok) {
+    show({ kind: 'invalid', errors: check.errors });
+    const firstBad = Object.keys(REPORT_FIELDS).find((f) => check.errors[f]);
+    const control = document.getElementById(REPORT_FIELDS[firstBad]);
+    if (control) control.focus();
+    return;
+  }
+
+  const { outbox, durable, reason } = await outboxReady;
+  if (!durable && !navigator.onLine) {
+    // Nowhere safe to keep it and no way to send it: say so instead of pretending it was saved.
+    show({ kind: 'not-saved', message: `You have no signal and this browser cannot keep reports on the device (${reason}). Try again when you have signal.` });
+    return;
+  }
+
+  const record = createRecord(check.value);
+  try {
+    await outbox.add(record);
+  } catch (err) {
+    show({ kind: 'not-saved', message: `The report could not be saved on this device: ${err && err.message ? err.message : err}` });
+    return;
+  }
+
+  // Ask for a background send right away (if the page is closed a moment from now, the browser still sends it),
+  // but do not make the installer wait for the answer: it only decides the wording of the message below.
+  const syncRequest = registerBackgroundSync(navigator);
+  if (typeof formElement.reset === 'function') formElement.reset();
+  const nameBox = document.getElementById('report-installer');
+  if (nameBox) nameBox.value = check.value.installer; // same installer files several reports in a row
+
+  if (navigator.onLine) await flushReports();
+  else await refreshReports();
+
+  const saved = await outbox.get(record.id);
+  if (saved && saved.status === 'sent') show({ kind: 'sent', id: record.id });
+  else if (saved && saved.status === 'rejected') show({ kind: 'refused', message: saved.lastError });
+  else show({ kind: 'queued', online: navigator.onLine, sync: await syncRequest, durable });
+}
+
+if (navigator.serviceWorker && typeof navigator.serviceWorker.addEventListener === 'function') {
+  // The service worker sent something in the background: show it.
+  navigator.serviceWorker.addEventListener('message', (event) => {
+    if (event.data && event.data.type === 'OUTBOX_CHANGED') refreshReports();
+  });
+}
+
 // ---- Online / offline indicator ----
 function updateNetwork() {
   const online = navigator.onLine;
@@ -84,6 +202,7 @@ function updateNetwork() {
 window.addEventListener('online', () => {
   updateNetwork();
   worker.checkForUpdate(); // back in signal: good moment to look for a new version
+  flushReports(); // the fallback for browsers without Background Sync (and a second chance in the others)
 });
 window.addEventListener('offline', updateNetwork);
 
@@ -182,7 +301,21 @@ outlet.addEventListener('click', async (event) => {
   const el = typeof event.target.closest === 'function' ? event.target.closest('[data-action]') : event.target;
   const action = el && el.dataset ? el.dataset.action : undefined;
 
-  if (action === 'install-now') {
+  if (action === 'report-example') {
+    const sample = sampleReports[exampleIndex % sampleReports.length];
+    exampleIndex += 1;
+    for (const [field, id] of Object.entries(REPORT_FIELDS)) {
+      const control = document.getElementById(id);
+      if (control) control.value = sample[field];
+    }
+  } else if (action === 'reports-send') {
+    await flushReports();
+  } else if (action === 'report-retry' || action === 'report-remove') {
+    const { outbox } = await outboxReady;
+    if (action === 'report-retry') await outbox.retry(el.dataset.id);
+    else await outbox.remove(el.dataset.id);
+    await (action === 'report-retry' ? flushReports() : refreshReports());
+  } else if (action === 'install-now') {
     await runInstall();
   } else if (action === 'offline-refresh') {
     await refreshOfflineStatus();
@@ -218,3 +351,5 @@ outlet.addEventListener('click', async (event) => {
 window.addEventListener('hashchange', render);
 updateNetwork();
 render();
+refreshReports();
+if (navigator.onLine) flushReports(); // reports left over from an earlier visit go out as soon as the app opens

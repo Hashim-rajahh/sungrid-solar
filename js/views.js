@@ -2,9 +2,10 @@
 // which keeps them testable in Node and keeps app.js tiny.
 
 import { company, jobs as JOBS, inventory as INVENTORY, STATUSES, cities, pricing } from './data.js';
+import { REPORT_KINDS, LIMITS, MAX_ATTEMPTS, countRecords } from './outbox.js';
 import { SYSTEM_TYPES } from './quote.js';
 import { SHORTCUTS } from './install.js';
-import { esc, formatPkr, formatDate, formatNumber, slug } from './util.js';
+import { esc, formatPkr, formatDate, formatNumber, formatWhen, slug } from './util.js';
 
 // ---------- small helpers ----------
 
@@ -157,6 +158,7 @@ export function jobDetailView(data, id) {
       <h1>${esc(job.id)} · ${esc(job.customer)}</h1>
       <p>${badge(job.status)}</p>
       <ol class="steps" aria-label="Job progress">${steps}</ol>
+      <p><a class="btn" href="#/reports?job=${encodeURIComponent(job.id)}">File a site report for this job</a></p>
       <div class="grid-2">
         <section class="card" aria-labelledby="site-h"><h2 id="site-h">Site</h2><dl>
           ${row('Address', esc(job.site))}
@@ -379,6 +381,152 @@ export function installStatusHtml(status, note = '') {
   </section>`;
 }
 
+// ---------- site reports (step 4) ----------
+
+/** Words for each outbox status, shown to the installer. */
+const REPORT_STATUS = {
+  pending: { label: 'Waiting to send', tone: 'quoted' },
+  sent: { label: 'Sent to office', tone: 'ok' },
+  rejected: { label: 'Refused by server', tone: 'out' },
+  stuck: { label: 'Needs attention', tone: 'out' },
+};
+
+export function reportsView(data, query = {}) {
+  const jobOptions = data.jobs
+    .map((j) => `<option value="${esc(j.id)}"${query.job === j.id ? ' selected' : ''}>${esc(j.id)} · ${esc(j.customer)}</option>`)
+    .join('');
+  const kindOptions = REPORT_KINDS.map((k) => `<option value="${esc(k)}">${esc(k)}</option>`).join('');
+
+  return {
+    title: 'Site reports',
+    html: `
+      <h1>Site reports</h1>
+      <p class="lead">File a report from site. With no signal it is saved on this phone and sent to the office by itself when the connection returns.</p>
+      <div class="grid-2">
+        <form id="report-form" class="card" novalidate aria-labelledby="report-form-h">
+          <h2 id="report-form-h">New report</h2>
+          <div class="field">
+            <label for="report-job">Job</label>
+            <select id="report-job" name="jobId" aria-describedby="report-job-err"><option value="">Select a job</option>${jobOptions}</select>
+            <div id="report-job-err" class="error" role="alert"></div>
+          </div>
+          <div class="field">
+            <label for="report-kind">Type of report</label>
+            <select id="report-kind" name="kind" aria-describedby="report-kind-err"><option value="">Select a type</option>${kindOptions}</select>
+            <div id="report-kind-err" class="error" role="alert"></div>
+          </div>
+          <div class="field">
+            <label for="report-panels">Panels fitted today</label>
+            <input id="report-panels" name="panels" type="text" inputmode="numeric" autocomplete="off" placeholder="e.g. 6" aria-describedby="report-panels-hint report-panels-err">
+            <div id="report-panels-hint" class="hint">Enter 0 if none were fitted. It cannot be more than the panels on the job.</div>
+            <div id="report-panels-err" class="error" role="alert"></div>
+          </div>
+          <div class="field">
+            <label for="report-note">Note for the office</label>
+            <textarea id="report-note" name="note" rows="4" maxlength="2000" placeholder="What was done, and what is still to do" aria-describedby="report-note-hint report-note-err"></textarea>
+            <div id="report-note-hint" class="hint">Required for a problem. Up to ${esc(LIMITS.noteMax)} characters.</div>
+            <div id="report-note-err" class="error" role="alert"></div>
+          </div>
+          <div class="field">
+            <label for="report-installer">Your name</label>
+            <input id="report-installer" name="installer" type="text" autocomplete="name" aria-describedby="report-installer-err">
+            <div id="report-installer-err" class="error" role="alert"></div>
+          </div>
+          <button class="btn btn-primary" type="submit">Save report</button>
+          <button class="btn" type="button" data-action="report-example">Use an example</button>
+          <div id="report-result" aria-live="polite"></div>
+        </form>
+        <section class="card" aria-labelledby="queue-h">
+          <h2 id="queue-h">Reports on this device</h2>
+          <div id="reports-list" aria-live="polite">${reportsListHtml([])}</div>
+        </section>
+      </div>`,
+  };
+}
+
+/**
+ * The list of stored reports with their delivery status.
+ * @param {Array<object>} records oldest first, as the outbox returns them
+ * @param {{durable?: boolean}} [opts] durable=false: this browser could not open on-device storage
+ */
+export function reportsListHtml(records, { durable = true } = {}) {
+  const warning = durable
+    ? ''
+    : '<p class="card-warn">This browser cannot keep reports on the device. Keep this page open until each report shows "Sent to office".</p>';
+  if (!records.length) {
+    return `${warning}<p class="muted">No reports yet. A report you save appears here, with a note of whether it has reached the office.</p>`;
+  }
+
+  const counts = countRecords(records);
+  const summary = [
+    counts.pending ? `${counts.pending} waiting to send` : '',
+    counts.rejected + counts.stuck ? `${counts.rejected + counts.stuck} need attention` : '',
+    counts.sent ? `${counts.sent} sent` : '',
+  ].filter(Boolean).join(' · ');
+  const sendAll = counts.pending
+    ? '<p><button class="btn btn-primary" type="button" data-action="reports-send">Send now</button></p>'
+    : '';
+
+  const items = [...records]
+    .reverse() // newest first on screen
+    .map((r) => {
+      const status = REPORT_STATUS[r.status] ?? REPORT_STATUS.pending;
+      const detail =
+        r.status === 'stuck'
+          ? `Could not be sent after ${esc(MAX_ATTEMPTS)} tries. ${esc(r.lastError ?? '')}`
+          : r.status === 'rejected'
+            ? esc(r.lastError ?? 'The office server refused this report.')
+            : r.status === 'pending' && r.attempts
+              ? `Last try failed: ${esc(r.lastError ?? 'no connection')} (try ${esc(r.attempts)})`
+              : '';
+      const actions =
+        r.status === 'rejected' || r.status === 'stuck'
+          ? `<div class="report-actions"><button class="btn" type="button" data-action="report-retry" data-id="${esc(r.id)}">Try again</button><button class="btn" type="button" data-action="report-remove" data-id="${esc(r.id)}">Remove</button></div>`
+          : '';
+      return `<li class="report report-${esc(r.status)}">
+        <div class="report-head"><strong>${esc(r.jobId)}</strong> · ${esc(r.kind)} <span class="badge badge-${esc(status.tone)}">${esc(status.label)}</span></div>
+        <div class="muted">${esc(formatWhen(r.createdAt))} · ${esc(r.panels)} panels fitted · ${esc(r.installer)}</div>
+        ${r.note ? `<p class="report-note">${esc(r.note)}</p>` : ''}
+        ${detail ? `<p class="report-detail">${detail}</p>` : ''}
+        ${actions}
+      </li>`;
+    })
+    .join('');
+
+  return `${warning}<p class="muted">${esc(summary)}</p>${sendAll}<ul class="report-list">${items}</ul>`;
+}
+
+/**
+ * The message under the form after "Save report".
+ * outcome.kind: 'invalid' | 'not-saved' | 'sent' | 'queued' | 'refused'
+ * outcome.sync (queued only): 'registered' | 'unsupported' | 'unavailable' | 'failed'
+ */
+export function reportOutcomeHtml(outcome) {
+  if (outcome.kind === 'invalid') {
+    const items = Object.values(outcome.errors).map((m) => `<li>${esc(m)}</li>`).join('');
+    return `<section class="card card-error"><h2>Please fix the following</h2><ul class="list">${items}</ul></section>`;
+  }
+  if (outcome.kind === 'not-saved') {
+    return `<section class="card card-error"><h2>Report not saved</h2><p>${esc(outcome.message)}</p></section>`;
+  }
+  if (outcome.kind === 'sent') {
+    return `<section class="card card-ok"><h2>Sent to the office</h2><p>Report ${esc(outcome.id)} reached the office.</p></section>`;
+  }
+  if (outcome.kind === 'refused') {
+    return `<section class="card card-error"><h2>The office server refused the report</h2><p>${esc(outcome.message)} It is kept in the list so you can try again or remove it.</p></section>`;
+  }
+
+  const why = outcome.online
+    ? 'The office server did not answer, so the report is waiting.'
+    : 'You have no signal, so the report is waiting.';
+  const how =
+    outcome.sync === 'registered'
+      ? 'It will be sent automatically when the connection returns, even if you close the app.'
+      : 'It will be sent when the connection returns, as long as you open SunGrid Solar again. This browser cannot send in the background.';
+  const durable = outcome.durable === false ? ' This browser cannot keep it on the device, so do not close this page until it is sent.' : '';
+  return `<section class="card card-warn"><h2>Saved on this phone</h2><p>${esc(why)} ${esc(how)}${esc(durable)}</p></section>`;
+}
+
 export function notFoundView(path) {
   return {
     title: 'Page not found',
@@ -412,6 +560,8 @@ export function renderRoute(route, ctx = {}) {
         return offlineView(data);
       case 'install':
         return installView(data);
+      case 'reports':
+        return reportsView(data, route.query ?? {});
       default:
         return notFoundView(route.path ?? '');
     }

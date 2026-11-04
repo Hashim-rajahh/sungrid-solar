@@ -177,3 +177,31 @@ export const inventory = [
   { sku: 'PRT-ACDC', name: 'AC/DC protection box (breakers + SPD)', category: 'Protection', stock: 11, reorderLevel: 10, unitPricePkr: 32000 },
   { sku: 'ERT-KIT', name: 'Earthing kit (rod, clamp, copper strip)', category: 'Protection', stock: 0, reorderLevel: 6, unitPricePkr: 9500 },
 ];
+
+/**
+ * Example site reports, as an installer would file them. The "Use an example" button on the Reports page
+ * fills the form from these, so the feature can be tried without typing.
+ */
+export const sampleReports = [
+  {
+    jobId: 'SG-1043',
+    kind: 'Progress update',
+    panels: '6',
+    note: 'East roof: 6 panels fitted and clamped. Battery rack mounted. AC/DC box still to do tomorrow.',
+    installer: 'Imran Khalid',
+  },
+  {
+    jobId: 'SG-1044',
+    kind: 'Problem found',
+    panels: '0',
+    note: 'Roof sheet is corroded near the south edge. Needs a structural check before the rails go on.',
+    installer: 'Naveed Akhtar',
+  },
+  {
+    jobId: 'SG-1042',
+    kind: 'Job finished',
+    panels: '18',
+    note: 'All 18 panels fitted and tested. Waiting for the LESCO meter inspection.',
+    installer: 'Imran Khalid',
+  },
+];

@@ -19,9 +19,56 @@ const TYPES = {
   '.png': 'image/png',
 };
 
-export function createServer() {
+const MAX_BODY = 20 * 1024; // a site report is well under 1 KB; anything bigger is not one
+
+/** Read a small request body. Resolves null if it is bigger than MAX_BODY. */
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    let tooBig = false;
+    req.on('data', (chunk) => {
+      size += chunk.length;
+      if (size > MAX_BODY) tooBig = true; // keep reading (and dropping) so the 413 answer can still be delivered
+      else chunks.push(chunk);
+    });
+    req.on('end', () => resolve(tooBig ? null : Buffer.concat(chunks).toString('utf8')));
+    req.on('error', reject);
+  });
+}
+
+function defaultHandleReport(fields) {
+  console.log(`Report received: ${fields.report_id}  ${fields.job}  ${fields.kind}  ${fields.panels} panels  by ${fields.installer}`);
+}
+
+/**
+ * `handleReport(fields)` stands in for Netlify Forms while developing: the app POSTs site reports to "/"
+ * and this answers 200 like Netlify does. The default prints the report so it can be checked in the terminal.
+ * It may return a number to answer with that status instead (the browser checks use this to simulate outages).
+ */
+export function createServer({ handleReport = defaultHandleReport } = {}) {
   return http.createServer(async (req, res) => {
     try {
+      if (req.method === 'POST') {
+        const body = await readBody(req);
+        if (body === null) {
+          res.writeHead(413, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Too large');
+          return;
+        }
+        const fields = Object.fromEntries(new URLSearchParams(body));
+        if (fields['form-name'] !== 'site-report') {
+          res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' }).end('Unknown form');
+          return;
+        }
+        const status = (await handleReport(fields)) ?? 200;
+        res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8' }).end(status === 200 ? 'Thank you' : 'Error');
+        return;
+      }
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { Allow: 'GET, HEAD, POST' }).end();
+        return;
+      }
+
       const urlPath = decodeURIComponent(new URL(req.url, 'http://localhost').pathname);
       const relative = urlPath.endsWith('/') ? `${urlPath}index.html` : urlPath;
       const file = path.join(root, path.normalize(relative));

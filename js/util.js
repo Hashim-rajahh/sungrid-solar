@@ -61,3 +61,14 @@ export function slug(text) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '');
 }
+
+/**
+ * "2026-10-30T10:04:00.000Z" -> "30 Oct 2026, 15:04" in the device's own time zone (the installer's phone
+ * shows the time on the phone). Anything unparsable returns an em dash.
+ */
+export function formatWhen(iso) {
+  const d = new Date(iso ?? NaN);
+  if (Number.isNaN(d.getTime())) return '—';
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}, ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
