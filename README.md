@@ -7,7 +7,7 @@ An offline-ready progressive web app (PWA) for **SunGrid Solar**, a solar panel 
 
 It is plain HTML, CSS and JavaScript (ES modules). There is **no build step and no dependencies**, so it runs the same on a laptop, on Netlify and on a phone.
 
-## The project in four steps
+## The project in five steps
 
 | Step | What it delivers | Main files | Decision recorded |
 |---|---|---|---|
@@ -15,6 +15,7 @@ It is plain HTML, CSS and JavaScript (ES modules). There is **no build step and 
 | **2. Service worker and offline cache** | The whole app saved on the device, works with no signal, safe updates, an Offline page | [`sw.js`](sw.js), [`js/sw-register.js`](js/sw-register.js), [`js/offline.js`](js/offline.js), [`scripts/stamp-sw.mjs`](scripts/stamp-sw.mjs) | [A new version waits until the user taps "Reload to update"](#step-2-a-new-version-waits-until-the-user-taps-reload-to-update) |
 | **3. Install prompt and icons** | Install bar, Install page, full icon set, long-press shortcuts, screenshots | [`js/install.js`](js/install.js), [`manifest.webmanifest`](manifest.webmanifest), [`icons/`](icons), [`screenshots/`](screenshots) | [The app holds the browser's install offer and shows its own bar after the second screen](#step-3-the-app-holds-the-browsers-install-offer-and-shows-its-own-bar-after-the-second-screen) |
 | **4. Background sync for form submissions** | A site-report form that works with no signal: reports wait in an on-device outbox and are sent by the service worker when the connection returns, even with the app closed | [`js/outbox-core.js`](js/outbox-core.js), [`js/outbox.js`](js/outbox.js), [`sw.js`](sw.js), the Reports screen in [`js/views.js`](js/views.js), the hidden form in [`index.html`](index.html) | [Save the report on the phone first, send it afterwards, and deliver at least once](#step-4-save-the-report-on-the-phone-first-send-it-afterwards-and-deliver-at-least-once) |
+| **5. Tests and performance budget** | The size and speed limits live in one file and are enforced by `npm test`; a one-command check; every change to a limit needs a written reason | [`scripts/budget.json`](scripts/budget.json), [`scripts/budget-lib.mjs`](scripts/budget-lib.mjs), [`scripts/measure.mjs`](scripts/measure.mjs), [`tests/budget.test.js`](tests/budget.test.js) | [The budget is a test, and every change to a limit has to be written down](#step-5-the-budget-is-a-test-and-every-change-to-a-limit-has-to-be-written-down) |
 
 ## What the app does
 
@@ -52,14 +53,18 @@ The address it prints (normally **http://localhost:8080/**; the next free port i
 ### Automated checks
 
 ```bash
-npm test                # 258 tests, a few seconds
-npm run measure         # file sizes and render times against budgets
+npm run check           # everything below that needs no browser: all tests, then the size table with room left
+npm test                # 274 tests, a few seconds (includes the performance budget)
+npm run measure         # file sizes and render times against scripts/budget.json (exit 0 pass, 1 over, 2 cannot run)
 npm run verify:offline  # real Chromium: offline cache and updates (14 checks)
 npm run verify:install  # real Chromium: installability, icons, install flow (30 checks)
 npm run verify:sync     # real Chromium: reports, outbox and Background Sync (40 checks)
+npm run verify:all      # the three verify scripts one after another
 ```
 
 The three `verify:` scripts need a browser driver that the app itself does not use (`npm i --no-save playwright-core`, and `CHROMIUM_PATH` pointing at Chrome or Chromium if Playwright has none). They work on a throw-away copy of the project and exit with code 1 if any check fails.
+
+The same command line runs on every push (`.github/workflows/test.yml`, Node 20 and 22): the tests, which include the performance budget, and then `npm run measure`.
 
 ### Manual check, step 1: shell and routing (about 3 minutes)
 
@@ -94,6 +99,13 @@ The three `verify:` scripts need a browser driver that the app itself does not u
 4. **Signal returns:** untick **Offline**. The report is sent within a moment, the `1` disappears and the list shows **Sent to office**. To have the service worker do it instead of the page, repeat step 3, then in **Application → Service Workers** type `sungrid-send-reports` into the *Sync* box and press **Sync**: the worker sends the report and the list updates.
 5. **Office unreachable:** with the app already open, stop `npm start` (Ctrl+C) and save a report. It says **The office server did not answer, so the report is waiting**. Start `npm start` again and press **Send now**: it is delivered.
 6. **Browsers without Background Sync (Safari, Firefox):** the saved card says the report will be sent when the app is opened again with signal, instead of promising more than the browser can do.
+
+### Manual check, step 5: tests and performance budget (about 3 minutes)
+
+1. Run `npm run check`. The tests end with `pass 274` and `fail 0`; then a table of every saved file appears, and four lines such as `Budget: first load <= 40 KB gzip -> PASS (37.5 KB, 2.5 left)` say how much room each limit has left.
+2. **Over budget:** make a copy of [`scripts/budget.json`](scripts/budget.json) named `try.json`, change `firstLoadGzipKb` to `30` both at the top and in the last `history` entry, and run `SUNGRID_BUDGET_FILE=try.json npm run measure` (in PowerShell: `$env:SUNGRID_BUDGET_FILE="try.json"; npm run measure`). The first-load line says `FAIL (37.5 KB, 7.5 OVER)`, the three largest files are named, and the exit code is 1.
+3. **A limit changed without a reason:** change only the top-level `firstLoadGzipKb` to `30` in `try.json` and run it again. It stops with `Budget check could not run: … "firstLoadGzipKb" is 30 but the latest history entry (step 5) says 40 … add a history entry with the step and the reason.` and exit code 2. Nothing is measured and no stack trace is shown.
+4. **A broken file:** put `{ "firstLoadGzipKb": ` in `try.json`: the message says it is not valid JSON, exit code 2.
 
 ## Sample data
 
@@ -190,9 +202,23 @@ Nothing is allowed to crash. Every failure gives a message that says what to do 
 | Text typed by the installer (`<script>`, quotes, `&`, Urdu) | Shown HTML-escaped in the list; arrives at the office unchanged (checked in the browser with Urdu text) |
 | A damaged stored record (missing fields, unknown status) | Still listed; no crash |
 
+**Tests and performance budget (step 5)**
+
+| Situation | What happens |
+|---|---|
+| The app is over a size limit | `npm test` fails and `npm run measure` exits 1. The line says `FAIL (37.5 KB, 7.5 OVER)`, names the three biggest files that count towards that limit, and says what to do (raise the limit on purpose, with a reason, or make the app smaller) |
+| A value exactly at its limit | Passes; one byte over fails |
+| One file over the per-file limit | That file is named and the message says to split it; the totals can still pass |
+| A screen too slow to build | The render line fails with the time found |
+| Budget file missing, unreadable or not JSON | `Budget check could not run: …` in one sentence, exit code 2, no stack trace |
+| A limit that is missing, zero, negative, a number in quotes, or not a number | Names the field: `"firstLoadGzipKb" must be a number above 0 (found "55")` |
+| `history` empty, an entry without a step, or a reason shorter than a sentence | Says which entry is missing what |
+| A limit raised without a new `history` entry | `"firstLoadGzipKb" is 60 but the latest history entry (step 5) says 40 … add a history entry with the step and the reason`; exit code 2 |
+| `sw.js` has no file list, or lists a file that does not exist | `sw.js saves ./js/missing.js but that file does not exist` |
+
 ## Tests
 
-Run with `npm test` (Node's built-in runner, no dependencies). **258 tests in 19 files.** The service worker file itself is loaded in a sandbox with a fake cache, a fake network and a fake IndexedDB, so its real code is tested, not a copy; the outbox is also tested against a fake IndexedDB shared by a "page" and a "worker".
+Run with `npm test` (Node's built-in runner, no dependencies). **274 tests in 20 files.** The service worker file itself is loaded in a sandbox with a fake cache, a fake network and a fake IndexedDB, so its real code is tested, not a copy; the outbox is also tested against a fake IndexedDB shared by a "page" and a "worker".
 
 | Step | File | Tests | Main path | Failure paths |
 |---|---|---|---|---|
@@ -215,6 +241,7 @@ Run with `npm test` (Node's built-in runner, no dependencies). **258 tests in 19
 | 4 | `reports-view.test.js` | 17 | the route renders the form and the list; every job and type offered; `?job=SG-1043` preselects; the job page links to the form; each status has its own words, newest first | unknown job in the address; no jobs at all; a damaged record; HTML injection in notes and server messages escaped; browser that cannot keep data warns first; junk dates become a dash |
 | 4 | `app-reports.test.js` | 11 | the real `app.js` against a fake DOM and fake network: online sends at once; offline saves, requests Background Sync and shows the count; the `online` event sends the waiting report; the page redraws when the worker tells it; the example button cycles | empty form marks every field and stores nothing; a Problem without a note; the office down, then "Send now"; a 400 kept with its reason, then "Try again" and "Remove" |
 | 4 | `app-reports-nostorage.test.js` | 3 | online it still sends straight away | no on-device storage: the page warns; offline the report is refused with a reason instead of being lost silently; server down shows the "do not close this page" warning |
+| 5 | `budget.test.js` | 16 | the real app is inside all four limits; every saved file is measured once; the budget file is valid and its latest history entry matches the limits; every screen renders far under the limit; `npm run measure` exits 0 with a PASS for each limit | over a limit: FAIL with the biggest files and the way out; exactly at the limit passes, one byte over fails; one oversized file named; a slow screen; icons not blamed for the first-load limit; a broken, incomplete or non-numeric budget file; a limit raised without a reason; `sw.js` without a list or with a missing file; the command line exits 1 when over and 2 with one plain sentence when the budget cannot be used |
 
 **Bugs the tests caught.** `(5.175).toFixed(2)` returns `"5.17"` in JavaScript because of binary floating-point, so the quote showed **5.17 kWp** for a 5.175 kWp system. `formatNumber` now rounds half-up correctly and has a regression test.
 
@@ -268,6 +295,17 @@ From the real-browser runs (local server, no throttling):
 These come from different machines and browser builds, so they should not be compared with each other. They show the worker adds no noticeable wait, not what a phone on 3G will see.
 
 Lighthouse on the deployed site after step 1 (`https://sungrid-solar.netlify.app/#/inventory`): Performance **83** · Accessibility **100** · Best Practices **100** · SEO **100**. It was not re-run for later steps.
+
+### Budget history
+
+The limits are in [`scripts/budget.json`](scripts/budget.json), together with the reason for each change. Today's room: first load 2.5 KB, offline copy 2.1 KB, largest file (`js/views.js`) 1.6 KB.
+
+| Step | First load | Offline copy | Why |
+|---|---|---|---|
+| 1 | 25 KB | 40 KB | First budget: 25 KB gzip is about half a second on a 400 kbps 3G link |
+| 3 | 30 KB | 45 KB | The install logic must be there on the first visit; the offline copy now holds the full icon set |
+| 4 | 40 KB | 55 KB | The report form and the outbox cost 10.7 KB gzip and can be needed on the very first visit |
+| 5 | 40 KB | 55 KB | No change; added a 10 KB limit for any single file and moved the limits into one file |
 
 ## Decisions and their trade-offs
 
@@ -387,6 +425,33 @@ Lighthouse on the deployed site after step 1 (`https://sungrid-solar.netlify.app
 | **Keep the last 10 sent reports as history; never drop a waiting one** | Keep everything, or nothing | The list stays short on a phone, and a report that has not reached the office is never pruned |
 | **The worker tells open pages** (`OUTBOX_CHANGED`) | Make the user reload | The list and the menu count update by themselves when a background send happens |
 
+### Step 5: the budget is a test, and every change to a limit has to be written down
+
+**The choice.** The size and speed limits live in one file, [`scripts/budget.json`](scripts/budget.json), and are enforced by `npm test`, the same command that runs every other test, not only by a separate script. If a change pushes the app over a limit the build fails, and the message names the biggest files and says what to do. A limit can still be raised, but not silently: every limit carries a `history` entry with the step and the reason, and a test fails when a limit and the latest history entry disagree. The alternative is a budget script that someone has to remember to run, with the numbers written as constants inside it.
+
+**Why.** Twice already (steps 3 and 4) the app went over its budget, and both times the number was raised in a code comment, at the moment someone most wanted to ship. A budget that can be moved without a trace protects nothing. Putting the check inside `npm test` means it runs every time and in CI, and requiring a reason means the person who raises a limit has to say why in the place a reviewer will look. One file read by the script, the tests and this README also means the numbers cannot drift apart.
+
+**Trade-offs accepted.**
+
+- **Adding a feature can fail the build.** A change that costs 3 KB stops until someone edits the budget file and writes the reason. That friction is the point, but it is friction, and the reason is checked only for being present, not for being good.
+- **The numbers are an alarm, not a prediction.** Sizes are the files compressed locally with Node's gzip at its default level; Netlify may send fewer bytes (it can use Brotli) and a real phone's speed varies, so the limits catch regressions rather than predict download time.
+- **The render limit is a smoke alarm.** It times how long it takes to build each screen's HTML in Node (about 0.05 to 0.09 ms against a 5 ms limit). It catches an accidental slow loop, but says nothing about how fast a phone paints the page.
+- **The per-file limit will need attention.** `js/views.js` is 8.4 KB against a 10 KB limit, so the next large addition to it will fail the build and is a prompt to split the file.
+- **Size and speed only.** The budget does not include Lighthouse scores, which were taken after step 1 and not repeated.
+
+**Where to change it.** [`scripts/budget.json`](scripts/budget.json): change the limit and add a `history` entry in the same edit. The comparison rules are in [`scripts/budget-lib.mjs`](scripts/budget-lib.mjs).
+
+**Other decisions in step 5**
+
+| Decision | Alternative | Why / cost |
+|---|---|---|
+| **Three exit codes: 0 within budget, 1 over budget, 2 the check could not run** | Any failure exits 1 | A broken budget file must not look like "the app is too big", and the reverse. Cost: one more thing to read in the README |
+| **The budget test measures the real files** | Fake sizes only | It catches the thing that matters: the real app growing. Cost: the test depends on the files, which is why it can fail after a feature is added |
+| **The failure paths of the check itself are tested** (bad file, no reason, missing file, exact limit, exit codes) | Test only that the app passes | A budget check that silently stops checking is worse than none. Cost: 16 tests for a 150-line module |
+| **Each limit's message lists only the files that count towards it** | One list of the biggest files | An icon is not part of the first load and should not be blamed for it |
+| **Room left is printed next to every PASS** | Print only PASS | You see the problem coming before the build fails |
+| **`npm run check` = all tests, then the measurement** | Remember two commands | One command for a reviewer; the browser checks stay separate (`verify:all`) because they need a browser driver |
+
 ## Project layout
 
 ```
@@ -411,9 +476,10 @@ screenshots/            four screenshots of the running app for the install dial
 tests/                  node:test suites; tests/helpers has a fake DOM, a fake IndexedDB, a "wait until the app
                         has stopped changing" helper (no fixed delays) and a PNG reader
 scripts/                serve.mjs, measure.mjs, stamp-sw.mjs, make-icons.py, make-screenshots.mjs,
-                        verify-offline.mjs, verify-install.mjs, verify-sync.mjs
+                        verify-offline.mjs, verify-install.mjs, verify-sync.mjs,
+                        budget.json (the limits and the reason for each change), budget-lib.mjs (measuring and comparing)
 netlify.toml            publish folder and headers
-.github/workflows/      runs tests and measurements on every push
+.github/workflows/      runs tests (which include the budget) and the measurement on every push
 ```
 
 ## Hosting
@@ -433,4 +499,5 @@ Site reports are received by **Netlify Forms**. The hidden form named `site-repo
 - **Background Sync** exists only in Chrome and Edge (see the step 4 decision). Headless Chrome does not announce connectivity changes to it, so `verify:sync` uses the event Chrome fires on its own when it comes and delivers it through DevTools otherwise. Sending with the app closed was verified in desktop Chromium only, not on a physical phone, and the browser's own retry timing was not measured.
 - **Update checks** run only while the app is open (on load, when the connection returns, and hourly).
 - **Update check in headless Chrome 153.** In the test environment, an update check requested after the app had been opened offline three or more times stayed pending for over a minute (the same happens with the step 2 code; one or two offline openings were fine). `verify:offline` therefore runs its update step before the repeated offline loads. The cause was not investigated further and the behaviour was not seen on a real device.
+- **The budget measures files, not the experience.** Sizes are local gzip sizes (Netlify's own compression may differ), and the render time is the time to build HTML in Node, not the time a phone takes to paint. A change to this step touched no app code, so the real-browser scripts were not re-run for it; they last passed on step 4's code.
 - **Timings** are from local machines without throttling. The Lighthouse scores were taken after step 1 and not repeated.

@@ -1,77 +1,42 @@
-// Measures the app shell so claims in the README are numbers, not guesses.
-//   1. Size of every precached file (raw and gzip) against a budget.
-//   2. Time to render every view as HTML (average over many runs).
-// Exit code 1 if a budget is exceeded, so it can run in CI.
-// Usage: node scripts/measure.mjs
+// Measures the app against the performance budget so the README's claims are numbers, not guesses.
+//   1. Size of every saved file (raw and gzip) against the budget.
+//   2. Time to build every screen's HTML (average over many runs).
+// Exit code: 0 = within budget, 1 = over budget, 2 = the check itself could not run (bad budget file, broken sw.js list).
+// The limits, and the reason for every change to them, are in scripts/budget.json. `npm test` enforces the same limits.
+// Usage: node scripts/measure.mjs        (SUNGRID_BUDGET_FILE=path uses another budget file, as the tests do)
 
-import { readFile } from 'node:fs/promises';
-import path from 'node:path';
-import { gzipSync } from 'node:zlib';
-import { fileURLToPath } from 'node:url';
-import { resolve } from '../js/router.js';
-import { renderRoute } from '../js/views.js';
+import { BUDGET_FILE, BudgetError, checkBudget, loadBudget, measureRender, measureShell } from './budget-lib.mjs';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-// Two budgets, because they protect different things:
-//  - FIRST LOAD: what a new visitor must download before the app is usable (HTML, CSS, JS, favicon).
-//    40 KB gzip is about 0.8 s on a 400 kbps 3G link. Raised from 25 KB to 30 KB in Task 3 (the install
-//    logic is needed on the first visit) and to 40 KB in Task 4 (the outbox and the report form: a report
-//    can be filed on the very first visit, so they cannot be loaded later).
-//  - PRECACHE:   everything saved for offline use. It includes every icon the manifest names, so the
-//    app can still be installed with no signal. Raised from 40 KB to 45 KB in Task 3 and to 55 KB in Task 4,
-//    for the same reasons.
-const BUDGET_FIRST_LOAD_GZIP_KB = 40;
-const BUDGET_PRECACHE_GZIP_KB = 55;
-const BUDGET_RENDER_MS = 5; // average per view
-const isFirstLoad = (f) => /\.(html|css|js|svg)$/.test(f);
+try {
+  const budget = await loadBudget(process.env.SUNGRID_BUDGET_FILE || BUDGET_FILE);
+  const shell = await measureShell();
 
-const sw = await readFile(path.join(root, 'sw.js'), 'utf8');
-const shellBlock = /const SHELL = \[([\s\S]*?)\];/.exec(sw)?.[1] ?? '';
-const files = [...shellBlock.matchAll(/'\.\/([^']*)'/g)].map((m) => m[1]).filter(Boolean);
-files.unshift('index.html'); // './' is served as index.html; avoid counting it twice
-const unique = [...new Set(files)];
-
-let rawTotal = 0;
-let gzTotal = 0;
-let firstLoadGz = 0;
-let firstLoadRaw = 0;
-console.log('\nApp shell size');
-console.log('file'.padEnd(34), 'raw'.padStart(9), 'gzip'.padStart(9));
-for (const f of unique) {
-  const buf = await readFile(path.join(root, f));
-  const gz = gzipSync(buf).length;
-  rawTotal += buf.length;
-  gzTotal += gz;
-  if (isFirstLoad(f)) {
-    firstLoadRaw += buf.length;
-    firstLoadGz += gz;
+  console.log('\nApp shell size');
+  console.log('file'.padEnd(34), 'raw'.padStart(9), 'gzip'.padStart(9));
+  for (const f of shell.files) {
+    console.log(f.file.padEnd(34), `${(f.raw / 1024).toFixed(1)} KB`.padStart(9), `${(f.gz / 1024).toFixed(1)} KB`.padStart(9));
   }
-  console.log(f.padEnd(34), `${(buf.length / 1024).toFixed(1)} KB`.padStart(9), `${(gz / 1024).toFixed(1)} KB`.padStart(9));
-}
-console.log('-'.repeat(54));
-console.log('FIRST LOAD (html/css/js/svg)'.padEnd(34), `${(firstLoadRaw / 1024).toFixed(1)} KB`.padStart(9), `${(firstLoadGz / 1024).toFixed(1)} KB`.padStart(9));
-console.log('FULL PRECACHE (offline)'.padEnd(34), `${(rawTotal / 1024).toFixed(1)} KB`.padStart(9), `${(gzTotal / 1024).toFixed(1)} KB`.padStart(9));
+  console.log('-'.repeat(54));
+  console.log('FIRST LOAD (html/css/js/svg)'.padEnd(34), `${(shell.firstLoadRaw / 1024).toFixed(1)} KB`.padStart(9), `${(shell.firstLoadGz / 1024).toFixed(1)} KB`.padStart(9));
+  console.log('FULL PRECACHE (offline)'.padEnd(34), `${(shell.precacheRaw / 1024).toFixed(1)} KB`.padStart(9), `${(shell.precacheGz / 1024).toFixed(1)} KB`.padStart(9));
 
-const routes = ['#/', '#/jobs', '#/jobs/SG-1042', '#/quote', '#/inventory', '#/offline', '#/install', '#/nope'];
-const RUNS = 500;
-console.log(`\nRender time (average of ${RUNS} runs)`);
-let worst = 0;
-for (const hash of routes) {
-  const route = resolve(hash);
-  const start = performance.now();
-  for (let i = 0; i < RUNS; i++) renderRoute(route);
-  const avg = (performance.now() - start) / RUNS;
-  worst = Math.max(worst, avg);
-  console.log(hash.padEnd(34), `${avg.toFixed(3)} ms`.padStart(12));
-}
+  const render = measureRender(500);
+  console.log('\nRender time (average of 500 runs)');
+  for (const r of render.perRoute) console.log(r.hash.padEnd(34), `${r.avgMs.toFixed(3)} ms`.padStart(12));
 
-const firstKb = firstLoadGz / 1024;
-const fullKb = gzTotal / 1024;
-const checks = [
-  [`first load <= ${BUDGET_FIRST_LOAD_GZIP_KB} KB gzip`, firstKb <= BUDGET_FIRST_LOAD_GZIP_KB, `${firstKb.toFixed(1)} KB`],
-  [`full precache <= ${BUDGET_PRECACHE_GZIP_KB} KB gzip`, fullKb <= BUDGET_PRECACHE_GZIP_KB, `${fullKb.toFixed(1)} KB`],
-  [`render <= ${BUDGET_RENDER_MS} ms`, worst <= BUDGET_RENDER_MS, `worst ${worst.toFixed(3)} ms`],
-];
-console.log('');
-for (const [label, pass, value] of checks) console.log(`Budget: ${label} -> ${pass ? 'PASS' : 'FAIL'} (${value})`);
-if (checks.some(([, pass]) => !pass)) process.exit(1);
+  const rows = checkBudget(shell, render.worstMs, budget);
+  console.log('');
+  for (const row of rows) {
+    const room = row.left >= 0 ? `${row.left.toFixed(row.id === 'render' ? 2 : 1)} left` : `${Math.abs(row.left).toFixed(row.id === 'render' ? 2 : 1)} OVER`;
+    console.log(`Budget: ${row.label} -> ${row.pass ? 'PASS' : 'FAIL'} (${row.value}, ${room})`);
+  }
+  const failed = rows.filter((r) => !r.pass);
+  for (const row of failed) console.log(`\n${row.label}: ${row.hint}`);
+  process.exit(failed.length ? 1 : 0);
+} catch (err) {
+  if (err instanceof BudgetError) {
+    console.error(`\nBudget check could not run: ${err.message}`);
+    process.exit(2);
+  }
+  throw err;
+}

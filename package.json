@@ -1,7 +1,7 @@
 {
   "name": "sungrid-solar",
-  "version": "0.4.0",
-  "description": "SunGrid Solar offline-ready PWA: app shell, offline cache, install prompt and icons, background sync for site reports (Tasks 1-4)",
+  "version": "0.5.0",
+  "description": "SunGrid Solar offline-ready PWA: app shell, offline cache, install prompt and icons, background sync for site reports, tests and a performance budget (Tasks 1-5)",
   "private": true,
   "type": "module",
   "engines": {
@@ -11,11 +11,13 @@
     "start": "node scripts/serve.mjs",
     "test": "node --test",
     "measure": "node scripts/measure.mjs",
+    "check": "node --test && node scripts/measure.mjs",
     "icons": "python3 scripts/make-icons.py",
     "stamp": "node scripts/stamp-sw.mjs",
     "verify:offline": "node scripts/verify-offline.mjs",
     "verify:install": "node scripts/verify-install.mjs",
     "screenshots": "node scripts/make-screenshots.mjs",
-    "verify:sync": "node scripts/verify-sync.mjs"
+    "verify:sync": "node scripts/verify-sync.mjs",
+    "verify:all": "npm run verify:offline && npm run verify:install && npm run verify:sync"
   }
 }
