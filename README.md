@@ -3,11 +3,13 @@
 An offline-ready progressive web app (PWA) for **SunGrid Solar**, a solar panel installer in Lahore. Installers use it on site, often with weak or no signal, to open job sheets, size a quote from a customer's electricity bill, check stock and file a site report for the office. It works with no signal at all, it can be installed on a phone's home screen, and a report filed with no signal is sent by itself when the connection returns.
 
 **Live app:** https://sungrid-solar.netlify.app/  
-**Repository:** https://github.com/Hashim-rajahh/sungrid-solar
+**Repository:** https://github.com/Hashim-rajahh/sungrid-solar  
+**Handover for the client:** [`docs/HANDOVER.md`](docs/HANDOVER.md)  
+**Status:** all five steps are included and work together as one project, with no placeholders; the live app opens at the link above.
 
 It is plain HTML, CSS and JavaScript (ES modules). There is **no build step and no dependencies**, so it runs the same on a laptop, on Netlify and on a phone.
 
-## The project in five steps
+## The project in six steps
 
 | Step | What it delivers | Main files | Decision recorded |
 |---|---|---|---|
@@ -16,6 +18,7 @@ It is plain HTML, CSS and JavaScript (ES modules). There is **no build step and 
 | **3. Install prompt and icons** | Install bar, Install page, full icon set, long-press shortcuts, screenshots | [`js/install.js`](js/install.js), [`manifest.webmanifest`](manifest.webmanifest), [`icons/`](icons), [`screenshots/`](screenshots) | [The app holds the browser's install offer and shows its own bar after the second screen](#step-3-the-app-holds-the-browsers-install-offer-and-shows-its-own-bar-after-the-second-screen) |
 | **4. Background sync for form submissions** | A site-report form that works with no signal: reports wait in an on-device outbox and are sent by the service worker when the connection returns, even with the app closed | [`js/outbox-core.js`](js/outbox-core.js), [`js/outbox.js`](js/outbox.js), [`sw.js`](sw.js), the Reports screen in [`js/views.js`](js/views.js), the hidden form in [`index.html`](index.html) | [Save the report on the phone first, send it afterwards, and deliver at least once](#step-4-save-the-report-on-the-phone-first-send-it-afterwards-and-deliver-at-least-once) |
 | **5. Tests and performance budget** | The size and speed limits live in one file and are enforced by `npm test`; a one-command check; every change to a limit needs a written reason | [`scripts/budget.json`](scripts/budget.json), [`scripts/budget-lib.mjs`](scripts/budget-lib.mjs), [`scripts/measure.mjs`](scripts/measure.mjs), [`tests/budget.test.js`](tests/budget.test.js) | [The budget is a test, and every change to a limit has to be written down](#step-5-the-budget-is-a-test-and-every-change-to-a-limit-has-to-be-written-down) |
+| **6. Deploy and hand over** | The finished project on Netlify, a screenshot of every main part, a handover written for the client, every check run again on the finished version | [`docs/HANDOVER.md`](docs/HANDOVER.md), [`docs/screens/`](docs/screens), [`scripts/make-docs-screens.mjs`](scripts/make-docs-screens.mjs) | [One document per reader: the README for developers, a handover for the client](#step-6-one-document-per-reader-the-readme-for-developers-a-handover-for-the-client) |
 
 ## What the app does
 
@@ -29,6 +32,17 @@ It is plain HTML, CSS and JavaScript (ES modules). There is **no build step and 
 | Offline | `#/offline` | Whether the app is saved on this device, app version, storage used, update state |
 | Install | `#/install` | How to put the app on the home screen, for this device, plus the shortcuts and icon previews |
 | Reports | `#/reports` and `#/reports?job=SG-1043` | A site-report form (job, type, panels fitted today, note, installer) and the list of reports on this phone with their delivery status. Every job sheet links to it with that job already chosen |
+
+## Screenshots
+
+Every main part of the app, taken from the running app on a phone-sized screen (`npm run docs:screens` retakes them).
+
+<table>
+<tr><td align="center"><img src="docs/screens/dashboard.png" width="170" alt="Dashboard screen"><br><sub>Dashboard</sub></td><td align="center"><img src="docs/screens/jobs.png" width="170" alt="Jobs screen"><br><sub>Jobs</sub></td><td align="center"><img src="docs/screens/job-sheet.png" width="170" alt="Job sheet screen"><br><sub>Job sheet</sub></td><td align="center"><img src="docs/screens/quote.png" width="170" alt="Quote screen"><br><sub>Quote</sub></td></tr>
+<tr><td align="center"><img src="docs/screens/inventory.png" width="170" alt="Inventory screen"><br><sub>Inventory</sub></td><td align="center"><img src="docs/screens/reports.png" width="170" alt="Reports screen"><br><sub>Reports</sub></td><td align="center"><img src="docs/screens/install.png" width="170" alt="Install screen"><br><sub>Install</sub></td><td align="center"><img src="docs/screens/offline.png" width="170" alt="Offline screen"><br><sub>Offline</sub></td></tr>
+</table>
+
+The Reports picture is taken after an example report was filed and delivered; the Offline picture shows the app saved on the device (25 of 25 files).
 
 ## A day in the life of an installer
 
@@ -59,7 +73,8 @@ npm run measure         # file sizes and render times against scripts/budget.jso
 npm run verify:offline  # real Chromium: offline cache and updates (14 checks)
 npm run verify:install  # real Chromium: installability, icons, install flow (30 checks)
 npm run verify:sync     # real Chromium: reports, outbox and Background Sync (40 checks)
-npm run verify:all      # the three verify scripts one after another
+npm run verify:all      # the three verify scripts one after another (84 checks)
+npm run docs:screens    # retakes the pictures in docs/screens/ (needs the browser driver)
 ```
 
 The three `verify:` scripts need a browser driver that the app itself does not use (`npm i --no-save playwright-core`, and `CHROMIUM_PATH` pointing at Chrome or Chromium if Playwright has none). They work on a throw-away copy of the project and exit with code 1 if any check fails.
@@ -452,6 +467,18 @@ The limits are in [`scripts/budget.json`](scripts/budget.json), together with th
 | **Room left is printed next to every PASS** | Print only PASS | You see the problem coming before the build fails |
 | **`npm run check` = all tests, then the measurement** | Remember two commands | One command for a reviewer; the browser checks stay separate (`verify:all`) because they need a browser driver |
 
+### Step 6: one document per reader: the README for developers, a handover for the client
+
+**The choice.** The project has two documents. This README is for people who review or change the code: how to run and check it, every wrong-input case, the tests, the measurements and the decisions. [`docs/HANDOVER.md`](docs/HANDOVER.md) is for the client who owns and runs the app: what it does, how it is released, where reports arrive, the key decisions in plain words, how the result was measured, what is not done and what comes next. The alternative is one long README for everyone.
+
+**Why.** A client deciding whether to take the app over needs a few pages that answer "what do I have, how do I run it, what can go wrong", not a 60 KB reference. A developer needs the reference. Mixing them makes both worse.
+
+**Trade-offs accepted.**
+
+- **Some numbers appear twice** (tests, budget, sizes). The handover quotes only headline figures and links to this README for the rest, so there is less to keep in step, but a figure can still go stale.
+- **The pictures are a snapshot.** They were taken from the finished app on a phone-sized screen; a later visual change makes them out of date until `npm run docs:screens` is run again. They are small (about 195 KB for eight, reduced to 64 colours) and are not part of the offline copy.
+- **The live link was not opened from the build environment,** which cannot reach the internet; it was opened on a real connection after deployment (see known limitations).
+
 ## Project layout
 
 ```
@@ -473,11 +500,13 @@ js/outbox-core.js       report validation, outbox, retry rules, sending; plain s
 js/outbox.js            ES-module face of outbox-core.js for the page and the tests
 icons/                  sun icons (any, maskable, iPhone, tab) and three shortcut glyphs
 screenshots/            four screenshots of the running app for the install dialog
+docs/                   HANDOVER.md (for the client), SUBMISSION_NOTE.md, screens/ (the README pictures)
 tests/                  node:test suites; tests/helpers has a fake DOM, a fake IndexedDB, a "wait until the app
                         has stopped changing" helper (no fixed delays) and a PNG reader
 scripts/                serve.mjs, measure.mjs, stamp-sw.mjs, make-icons.py, make-screenshots.mjs,
                         verify-offline.mjs, verify-install.mjs, verify-sync.mjs,
-                        budget.json (the limits and the reason for each change), budget-lib.mjs (measuring and comparing)
+                        budget.json (the limits and the reason for each change), budget-lib.mjs (measuring and comparing),
+                        make-docs-screens.mjs (the README pictures)
 netlify.toml            publish folder and headers
 .github/workflows/      runs tests (which include the budget) and the measurement on every push
 ```
@@ -499,5 +528,5 @@ Site reports are received by **Netlify Forms**. The hidden form named `site-repo
 - **Background Sync** exists only in Chrome and Edge (see the step 4 decision). Headless Chrome does not announce connectivity changes to it, so `verify:sync` uses the event Chrome fires on its own when it comes and delivers it through DevTools otherwise. Sending with the app closed was verified in desktop Chromium only, not on a physical phone, and the browser's own retry timing was not measured.
 - **Update checks** run only while the app is open (on load, when the connection returns, and hourly).
 - **Update check in headless Chrome 153.** In the test environment, an update check requested after the app had been opened offline three or more times stayed pending for over a minute (the same happens with the step 2 code; one or two offline openings were fine). `verify:offline` therefore runs its update step before the repeated offline loads. The cause was not investigated further and the behaviour was not seen on a real device.
-- **The budget measures files, not the experience.** Sizes are local gzip sizes (Netlify's own compression may differ), and the render time is the time to build HTML in Node, not the time a phone takes to paint. A change to this step touched no app code, so the real-browser scripts were not re-run for it; they last passed on step 4's code.
+- **The budget measures files, not the experience.** Sizes are local gzip sizes (Netlify's own compression may differ), and the render time is the time to build HTML in Node, not the time a phone takes to paint. Step 5 touched no app code, and the real-browser scripts (84 checks) were run again on the finished project for the hand over, all passing.
 - **Timings** are from local machines without throttling. The Lighthouse scores were taken after step 1 and not repeated.

@@ -17,6 +17,7 @@
     "verify:offline": "node scripts/verify-offline.mjs",
     "verify:install": "node scripts/verify-install.mjs",
     "screenshots": "node scripts/make-screenshots.mjs",
+    "docs:screens": "node scripts/make-docs-screens.mjs",
     "verify:sync": "node scripts/verify-sync.mjs",
     "verify:all": "npm run verify:offline && npm run verify:install && npm run verify:sync"
   }
